@@ -77,7 +77,7 @@ exports.findNextUnitOfWorkAtPriority = function(workRoot : Fiber, priorityLevel 
     if (workInProgress.pendingWorkPriority !== NoWork &&
         workInProgress.pendingWorkPriority <= priorityLevel) {
       // This node has work to do that fits our priority level criteria.
-      if (workInProgress.pendingProps !== null) {
+      if (workInProgress.pendingProps !== null || workInProgress.pendingState !== null) {
         return workInProgress;
       }
 

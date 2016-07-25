@@ -18,6 +18,7 @@ import type { FiberRoot } from 'ReactFiberRoot';
 import type { HostConfig } from 'ReactFiberReconciler';
 import type { Scheduler } from 'ReactFiberScheduler';
 import type { PriorityLevel } from 'ReactPriorityLevel';
+import type { PendingState } from 'ReactFiberPendingState';
 
 var {
   reconcileChildFibers,
@@ -40,6 +41,10 @@ var {
   OffscreenPriority,
 } = require('ReactPriorityLevel');
 var { findNextUnitOfWorkAtPriority } = require('ReactFiberPendingWork');
+var {
+  createPendingState,
+  mergePendingState,
+} = require('ReactFiberPendingState');
 
 module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getScheduler: () => Scheduler) {
   function reconcileChildren(current, workInProgress, nextChildren) {
@@ -83,10 +88,9 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
     reconcileChildren(current, workInProgress, nextChildren);
   }
 
-  function updateFiber(fiber: Fiber, state: any, priorityLevel : PriorityLevel): void {
+  function scheduleUpdate(fiber: Fiber, pendingState: PendingState, priorityLevel : PriorityLevel): void {
     const { scheduleLowPriWork } = getScheduler();
-    fiber.pendingState = state;
-
+    fiber.pendingState = pendingState;
     while (true) {
       if (fiber.pendingWorkPriority === NoWork ||
           fiber.pendingWorkPriority >= priorityLevel) {
@@ -109,37 +113,55 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
   const updater = {
     enqueueSetState(instance, partialState) {
       const fiber = instance._fiber;
+      let pendingState = fiber.pendingState;
 
-      const prevState = fiber.pendingState || fiber.memoizedState;
-      const state = Object.assign({}, prevState, partialState);
+      // Append to pending state queue
+      const nextPendingStateNode = createPendingState(partialState);
+      if (pendingState === null) {
+        pendingState = nextPendingStateNode;
+      } else {
+        if (pendingState.tail === null) {
+          pendingState.next = nextPendingStateNode;
+        } else {
+          pendingState.tail.next = nextPendingStateNode;
+        }
+        pendingState.tail = nextPendingStateNode;
+      }
 
       // Must schedule an update on both alternates, because we don't know tree
       // is current.
-      updateFiber(fiber, state, LowPriority);
+      scheduleUpdate(fiber, pendingState, LowPriority);
       if (fiber.alternate) {
-        updateFiber(fiber.alternate, state, LowPriority);
+        scheduleUpdate(fiber.alternate, pendingState, LowPriority);
       }
     },
   };
 
   function updateClassComponent(current : ?Fiber, workInProgress : Fiber) {
     // A class component update is the result of either new props or new state.
-    // Account for the possibly of missing pending props or state by falling
-    // back to the most recent props or state.
+    // Account for the possibly of missing pending props by falling back to the
+    // memoized props.
     var props = workInProgress.pendingProps;
-    var state = workInProgress.pendingState;
     if (!props && current) {
       props = current.memoizedProps;
     }
-    if (!state && current) {
-      state = current.memoizedState;
+    // Compute the state using the memoized state and the pending state queue.
+    var pendingState = workInProgress.pendingState;
+    var state;
+    if (!current) {
+      state = mergePendingState(null, pendingState);
+    } else {
+      state = mergePendingState(current.memoizedState, pendingState);
     }
 
     var instance = workInProgress.stateNode;
     if (!instance) {
       var ctor = workInProgress.type;
       workInProgress.stateNode = instance = new ctor(props);
-      state = workInProgress.pendingState = instance.state || null;
+      state = instance.state || null;
+      // The initial state must be added to the pending state queue in case
+      // setState is called before the initial render.
+      workInProgress.pendingState = createPendingState(state);
       // The instance needs access to the fiber so that it can schedule updates
       instance._fiber = workInProgress;
       instance.updater = updater;
@@ -149,7 +171,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
         instance.props = current.memoizedProps;
         instance.state = current.memoizedState;
         if (!instance.shouldComponentUpdate(props, state)) {
-          return bailoutOnCurrent(current, workInProgress);
+          return bailoutOnCurrent(current, workInProgress, state);
         }
       }
       if (!workInProgress.childInProgress && workInProgress.memoizedProps) {
@@ -260,12 +282,12 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
     } while (child = child.sibling);
   }
 
-  function bailoutOnCurrent(current : Fiber, workInProgress : Fiber) : ?Fiber {
+  function bailoutOnCurrent(current : Fiber, workInProgress : Fiber, state : any) : ?Fiber {
     // The most likely scenario is that the previous copy of the tree contains
     // the same props as the new one. In that case, we can just copy the output
     // and children from that node.
     workInProgress.memoizedProps = workInProgress.pendingProps;
-    workInProgress.memoizedState = workInProgress.pendingState;
+    workInProgress.memoizedState = state;
     workInProgress.output = current.output;
     const priorityLevel = workInProgress.pendingWorkPriority;
     workInProgress.pendingProps = null;
@@ -333,14 +355,14 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
     // progress.
     if (current &&
         workInProgress.pendingProps === current.memoizedProps &&
-        workInProgress.pendingState === current.memoizedState
+        workInProgress.pendingState === null
     ) {
-      return bailoutOnCurrent(current, workInProgress);
+      return bailoutOnCurrent(current, workInProgress, null);
     }
 
     if (!workInProgress.childInProgress &&
         workInProgress.pendingProps === workInProgress.memoizedProps &&
-        workInProgress.pendingState === workInProgress.memoizedState
+        workInProgress.pendingState === null
     ) {
       return bailoutOnAlreadyFinishedWork(current, workInProgress);
     }

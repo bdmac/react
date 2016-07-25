@@ -15,7 +15,7 @@
 import type { ReactCoroutine, ReactYield } from 'ReactCoroutine';
 import type { TypeOfWork } from 'ReactTypeOfWork';
 import type { PriorityLevel } from 'ReactPriorityLevel';
-import type { PendingState } from 'ReactFiberPendingState';
+import type { StateQueue } from 'ReactFiberStateQueue';
 
 var ReactTypeOfWork = require('ReactTypeOfWork');
 var {
@@ -79,9 +79,8 @@ export type Fiber = Instance & {
   pendingProps: any, // This type will be more specific once we overload the tag.
   // TODO: I think that there is a way to merge pendingProps and memoizedProps.
   memoizedProps: any, // The props used to create the output.
-  // Local state for class components. Either null or a linked list of partial
-  // state objects.
-  pendingState: PendingState,
+  // A queue of local state updates.
+  stateQueue: StateQueue,
   // The state used to create the output. This is a full state object.
   memoizedState: any,
   // Output is the return value of this fiber, or a linked list of return values
@@ -140,7 +139,7 @@ var createFiber = function(tag : TypeOfWork, key : null | string) : Fiber {
 
     pendingProps: null,
     memoizedProps: null,
-    pendingState: null,
+    stateQueue: null,
     memoizedState: null,
     output: null,
 
@@ -176,7 +175,7 @@ exports.cloneFiber = function(fiber : Fiber, priorityLevel : PriorityLevel) : Fi
     alt.sibling = fiber.sibling;
     alt.ref = alt.ref;
     alt.pendingProps = fiber.pendingProps;
-    alt.pendingState = fiber.pendingState;
+    alt.stateQueue = fiber.stateQueue;
     alt.pendingWorkPriority = priorityLevel;
 
     alt.memoizedProps = fiber.memoizedProps;
@@ -201,7 +200,7 @@ exports.cloneFiber = function(fiber : Fiber, priorityLevel : PriorityLevel) : Fi
   alt.ref = alt.ref;
   // pendingProps is here for symmetry but is unnecessary in practice for now.
   alt.pendingProps = fiber.pendingProps;
-  alt.pendingState = fiber.pendingState;
+  alt.stateQueue = fiber.stateQueue;
   alt.pendingWorkPriority = priorityLevel;
 
   alt.memoizedProps = fiber.memoizedProps;

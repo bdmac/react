@@ -156,9 +156,9 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>) {
       // The work is now done. We don't need this anymore. This flags
       // to the system not to redo any work here.
       workInProgress.pendingProps = null;
-      workInProgress.pendingState = null;
+      workInProgress.stateQueue = null;
       if (current) {
-        current.pendingState = null;
+        current.stateQueue = null;
       }
 
       const returnFiber = workInProgress.return;
@@ -220,7 +220,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>) {
 
   function performUnitOfWork(workInProgress : Fiber) : ?Fiber {
     // Ignore work if there is nothing to do.
-    if (workInProgress.pendingProps === null && workInProgress.pendingState === null) {
+    if (workInProgress.pendingProps === null && workInProgress.stateQueue === null) {
       return completeUnitOfWork(workInProgress);
     }
     // The current, flushed, state of this fiber is the alternate.

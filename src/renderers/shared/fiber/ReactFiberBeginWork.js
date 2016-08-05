@@ -44,6 +44,7 @@ var { findNextUnitOfWorkAtPriority } = require('ReactFiberPendingWork');
 var {
   createUpdateQueue,
   addToQueue,
+  addCallbackToQueue,
   mergeUpdateQueue,
 } = require('ReactFiberUpdateQueue');
 var ReactInstanceMap = require('ReactInstanceMap');
@@ -130,6 +131,17 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
         addToQueue(fiber.updateQueue, partialState) :
         createUpdateQueue(partialState);
       scheduleUpdate(fiber, updateQueue, LowPriority);
+    },
+    enqueueCallback(instance, callback) {
+      const fiber = ReactInstanceMap.get(instance);
+      let updateQueue = fiber.updateQueue ?
+        fiber.updateQueue :
+        createUpdateQueue(null);
+      addCallbackToQueue(updateQueue, callback);
+      fiber.updateQueue = updateQueue;
+      if (fiber.alternate) {
+        fiber.alternate.updateQueue = updateQueue;
+      }
     },
   };
 

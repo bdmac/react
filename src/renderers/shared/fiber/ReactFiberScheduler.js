@@ -78,8 +78,9 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>) {
     while (root) {
       let rootInProgress = cloneFiber(
         root.current,
-        root.current.pendingWorkPriority
+        root.current.pendingUpdatePriority
       );
+
       // Find the highest possible priority work to do.
       // This loop is unrolled just to satisfy Flow's enum constraint.
       // We could make arbitrary many idle priority levels but having
@@ -151,6 +152,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>) {
       const current = workInProgress.alternate;
       const next = completeWork(current, workInProgress);
 
+      workInProgress.pendingUpdatePriority = NoWork;
       resetWorkPriority(workInProgress);
 
       // The work is now done. We don't need this anymore. This flags

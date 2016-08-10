@@ -99,7 +99,11 @@ export type Fiber = Instance & {
   lastEffect: ?Fiber,
 
 
-  // This will be used to quickly determine if a subtree has no pending changes.
+  // The update priority is the priority of a fiber's pending props and state.
+  // It may be lower than the priority of the entire subtree.
+  pendingUpdatePriority: PriorityLevel,
+  // The work priority is the priority of the entire subtree. It will be used to
+  // quickly determine if a subtree has no pending changes.
   pendingWorkPriority: PriorityLevel,
 
   // This is a pooled version of a Fiber. Every fiber that gets updated will
@@ -150,6 +154,7 @@ var createFiber = function(tag : TypeOfWork, key : null | string) : Fiber {
     firstEffect: null,
     lastEffect: null,
 
+    pendingUpdatePriority: NoWork,
     pendingWorkPriority: NoWork,
 
     childInProgress: null,
@@ -165,6 +170,28 @@ function shouldConstruct(Component) {
 
 // This is used to create an alternate fiber to do work on.
 exports.cloneFiber = function(fiber : Fiber, priorityLevel : PriorityLevel) : Fiber {
+  // Don't deprioritize when cloning. Unlike other priority comparisons (e.g.
+  // in the scheduler), this one must check that priorityLevel is not equal to
+  // NoWork, otherwise work will be dropped. For complete correctness, the other
+  // priority comparisons should also perform this check, even though it's not
+  // an issue in practice. I didn't catch this at first and it created a subtle
+  // bug, which suggests we may need to extract the logic into a
+  // utility function (shouldOverridePriority).
+  let updatePriority;
+  let workPriority;
+  if (priorityLevel !== NoWork &&
+      (priorityLevel < fiber.pendingUpdatePriority || fiber.pendingUpdatePriority === NoWork)) {
+    updatePriority = priorityLevel;
+  } else {
+    updatePriority = fiber.pendingUpdatePriority;
+  }
+  if (updatePriority !== NoWork &&
+      (updatePriority < fiber.pendingWorkPriority || fiber.pendingWorkPriority === NoWork)) {
+    workPriority = updatePriority;
+  } else {
+    workPriority = fiber.pendingWorkPriority;
+  }
+
   // We use a double buffering pooling technique because we know that we'll only
   // ever need at most two versions of a tree. We pool the "other" unused node
   // that we're free to reuse. This is lazily created to avoid allocating extra
@@ -180,7 +207,8 @@ exports.cloneFiber = function(fiber : Fiber, priorityLevel : PriorityLevel) : Fi
     alt.pendingProps = fiber.pendingProps;
     alt.updateQueue = fiber.updateQueue;
     alt.callbackList = fiber.callbackList;
-    alt.pendingWorkPriority = priorityLevel;
+    alt.pendingUpdatePriority = updatePriority;
+    alt.pendingWorkPriority = workPriority;
 
     alt.memoizedProps = fiber.memoizedProps;
     alt.output = fiber.output;
@@ -206,7 +234,8 @@ exports.cloneFiber = function(fiber : Fiber, priorityLevel : PriorityLevel) : Fi
   alt.pendingProps = fiber.pendingProps;
   alt.updateQueue = fiber.updateQueue;
   alt.callbackList = fiber.callbackList;
-  alt.pendingWorkPriority = priorityLevel;
+  alt.pendingUpdatePriority = updatePriority;
+  alt.pendingWorkPriority = workPriority;
 
   alt.memoizedProps = fiber.memoizedProps;
   alt.output = fiber.output;
@@ -224,6 +253,7 @@ exports.createHostContainerFiber = function() {
 exports.createFiberFromElement = function(element : ReactElement, priorityLevel : PriorityLevel) {
   const fiber = createFiberFromElementType(element.type, element.key);
   fiber.pendingProps = element.props;
+  fiber.pendingUpdatePriority = priorityLevel;
   fiber.pendingWorkPriority = priorityLevel;
   return fiber;
 };
@@ -253,6 +283,7 @@ exports.createFiberFromCoroutine = function(coroutine : ReactCoroutine, priority
   const fiber = createFiber(CoroutineComponent, coroutine.key);
   fiber.type = coroutine.handler;
   fiber.pendingProps = coroutine;
+  fiber.pendingUpdatePriority = priorityLevel;
   fiber.pendingWorkPriority = priorityLevel;
   return fiber;
 };

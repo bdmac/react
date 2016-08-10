@@ -27,7 +27,7 @@ function cloneSiblings(current : Fiber, workInProgress : Fiber, returnFiber : Fi
     current = current.sibling;
     workInProgress = workInProgress.sibling = cloneFiber(
       current,
-      current.pendingWorkPriority
+      current.pendingUpdatePriority
     );
     workInProgress.return = returnFiber;
   }
@@ -66,7 +66,7 @@ function cloneChildrenIfNeeded(workInProgress : Fiber) {
   }
   workInProgress.child = cloneFiber(
     currentChild,
-    currentChild.pendingWorkPriority
+    currentChild.pendingUpdatePriority
   );
   cloneSiblings(currentChild, workInProgress.child, workInProgress);
 }
@@ -77,7 +77,9 @@ exports.findNextUnitOfWorkAtPriority = function(workRoot : Fiber, priorityLevel 
     if (workInProgress.pendingWorkPriority !== NoWork &&
         workInProgress.pendingWorkPriority <= priorityLevel) {
       // This node has work to do that fits our priority level criteria.
-      if (workInProgress.pendingProps !== null || workInProgress.updateQueue !== null) {
+      if (workInProgress.pendingUpdatePriority !== NoWork &&
+          workInProgress.pendingUpdatePriority <= priorityLevel &&
+          (workInProgress.pendingProps !== null || workInProgress.updateQueue !== null)) {
         return workInProgress;
       }
 
@@ -94,14 +96,9 @@ exports.findNextUnitOfWorkAtPriority = function(workRoot : Fiber, priorityLevel 
         }
         child = workInProgress.childInProgress;
         while (child) {
-          // Don't bother drilling further down this tree if there is no child
-          // with more content.
-          // TODO: Shouldn't this still drill down even though the first
-          // shallow level doesn't have anything pending on it.
-          if (child.pendingWorkPriority !== NoWork &&
-              child.pendingWorkPriority <= priorityLevel &&
-              child.pendingProps !== null) {
-            return child;
+          const next = exports.findNextUnitOfWorkAtPriority(child, priorityLevel);
+          if (next) {
+            return next;
           }
           child = child.sibling;
         }
@@ -113,6 +110,7 @@ exports.findNextUnitOfWorkAtPriority = function(workRoot : Fiber, priorityLevel 
       // If we match the priority but has no child and no work to do,
       // then we can safely reset the flag.
       workInProgress.pendingWorkPriority = NoWork;
+      workInProgress.pendingUpdatePriority = NoWork;
     }
     if (workInProgress === workRoot) {
       if (workInProgress.pendingWorkPriority <= priorityLevel) {
@@ -120,6 +118,7 @@ exports.findNextUnitOfWorkAtPriority = function(workRoot : Fiber, priorityLevel 
         // now. This could happen if a child with pending work gets cleaned up
         // but we don't clear the flag then. It is safe to reset it now.
         workInProgress.pendingWorkPriority = NoWork;
+        workInProgress.pendingUpdatePriority = NoWork;
       }
       return null;
     }
@@ -133,6 +132,7 @@ exports.findNextUnitOfWorkAtPriority = function(workRoot : Fiber, priorityLevel 
         // now. This could happen if a child with pending work gets cleaned up
         // but we don't clear the flag then. It is safe to reset it now.
         workInProgress.pendingWorkPriority = NoWork;
+        workInProgress.pendingUpdatePriority = NoWork;
       }
     }
     workInProgress.sibling.return = workInProgress.return;

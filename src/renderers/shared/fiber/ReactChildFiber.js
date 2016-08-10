@@ -28,6 +28,7 @@ var {
 
 var ReactFiber = require('ReactFiber');
 var ReactReifiedYield = require('ReactReifiedYield');
+var ReactPriorityLevel = require('ReactPriorityLevel');
 
 const {
   cloneFiber,
@@ -39,6 +40,10 @@ const {
 const {
   createReifiedYield,
 } = ReactReifiedYield;
+
+const {
+  NoWork,
+} = ReactPriorityLevel;
 
 const isArray = Array.isArray;
 
@@ -66,7 +71,11 @@ function ChildReconciler(shouldClone) {
           const clone = shouldClone ? cloneFiber(existingChild, priority) : existingChild;
           if (!shouldClone) {
             // TODO: This might be lowering the priority of nested unfinished work.
-            clone.pendingWorkPriority = priority;
+            clone.pendingUpdatePriority = priority;
+            if (clone.pendingWorkPriority === NoWork ||
+                clone.pendingWorkPriority > priority) {
+              clone.pendingWorkPriority = priority;
+            }
           }
           clone.pendingProps = element.props;
           clone.child = existingChild.child;
@@ -134,7 +143,11 @@ function ChildReconciler(shouldClone) {
           const clone = shouldClone ? cloneFiber(existingChild, priority) : existingChild;
           if (!shouldClone) {
             // TODO: This might be lowering the priority of nested unfinished work.
-            clone.pendingWorkPriority = priority;
+            clone.pendingUpdatePriority = priority;
+            if (clone.pendingWorkPriority === NoWork ||
+                clone.pendingWorkPriority > priority) {
+              clone.pendingWorkPriority = priority;
+            }
           }
           clone.pendingProps = element.props;
           clone.child = existingChild.child;

@@ -53,7 +53,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
   function reconcileChildren(current, workInProgress, nextChildren) {
     // TODO: Children needs to be able to reconcile in place if we are
     // overriding progressed work.
-    const priority = workInProgress.pendingWorkPriority;
+    const priority = workInProgress.pendingUpdatePriority;
     reconcileChildrenAtPriority(current, workInProgress, nextChildren, priority);
   }
 
@@ -99,14 +99,29 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
     if (fiber.alternate !== null) {
       fiber.alternate.updateQueue = updateQueue;
     }
+
+    // Set the update priority of the fiber and its alternate
+    if (fiber.pendingUpdatePriority === NoWork ||
+        fiber.pendingUpdatePriority > priorityLevel) {
+      fiber.pendingUpdatePriority = priorityLevel;
+    }
+    if (fiber.alternate !== null) {
+      if (fiber.alternate.pendingUpdatePriority === NoWork ||
+          fiber.alternate.pendingUpdatePriority > priorityLevel) {
+        fiber.alternate.pendingUpdatePriority = priorityLevel;
+      }
+    }
+
+    // For this fiber and all its ancestors and their alternates, set the
+    // work (subtree) priority
     while (true) {
       if (fiber.pendingWorkPriority === NoWork ||
-          fiber.pendingWorkPriority >= priorityLevel) {
+          fiber.pendingWorkPriority > priorityLevel) {
         fiber.pendingWorkPriority = priorityLevel;
       }
       if (fiber.alternate !== null) {
         if (fiber.alternate.pendingWorkPriority === NoWork ||
-            fiber.alternate.pendingWorkPriority >= priorityLevel) {
+            fiber.alternate.pendingWorkPriority > priorityLevel) {
           fiber.alternate.pendingWorkPriority = priorityLevel;
         }
       }
@@ -216,7 +231,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
   function updateHostComponent(current, workInProgress) {
     var nextChildren = workInProgress.pendingProps.children;
 
-    let priority = workInProgress.pendingWorkPriority;
+    let priority = workInProgress.pendingUpdatePriority;
     if (workInProgress.pendingProps.hidden && priority !== OffscreenPriority) {
       // If this host component is hidden, we can reconcile its children at
       // the lowest priority and bail out from this particular pass. Unless, we're
@@ -310,7 +325,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
     workInProgress.memoizedProps = workInProgress.pendingProps;
     workInProgress.memoizedState = state;
     workInProgress.output = current.output;
-    const priorityLevel = workInProgress.pendingWorkPriority;
+    const priorityLevel = workInProgress.pendingUpdatePriority;
     workInProgress.pendingProps = null;
     workInProgress.updateQueue = current.updateQueue = null;
     workInProgress.stateNode = current.stateNode;
@@ -324,7 +339,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
       if (workInProgress.pendingWorkPriority !== NoWork && workInProgress.pendingWorkPriority <= priorityLevel) {
         return findNextUnitOfWorkAtPriority(
           workInProgress,
-          workInProgress.pendingWorkPriority
+          priorityLevel
         );
       } else {
         return null;
@@ -339,7 +354,7 @@ module.exports = function<T, P, I, C>(config : HostConfig<T, P, I, C>, getSchedu
     // If we started this work before, and finished it, or if we're in a
     // ping-pong update scenario, this version could already be what we're
     // looking for. In that case, we should be able to just bail out.
-    const priorityLevel = workInProgress.pendingWorkPriority;
+    const priorityLevel = workInProgress.pendingUpdatePriority;
     workInProgress.pendingProps = null;
     workInProgress.updateQueue = null;
     if (workInProgress.alternate) {

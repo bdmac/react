@@ -98,11 +98,17 @@ module.exports = function<T, P, I, TI, PI, C, CX, PL>(
       // continue from this point.
       current.progressedChild = workInProgress.progressedChild;
       current.progressedPriority = workInProgress.progressedPriority;
+      current.progressedFirstDeletion = workInProgress.progressedFirstDeletion;
+      current.progressedLastDeletion = workInProgress.progressedLastDeletion;
     }
   }
 
   function clearDeletions(workInProgress) {
+    const current = workInProgress.alternate;
     workInProgress.progressedFirstDeletion = workInProgress.progressedLastDeletion = null;
+    if (current) {
+      current.progressedFirstDeletion = current.progressedLastDeletion = null;
+    }
   }
 
   function transferDeletions(workInProgress) {

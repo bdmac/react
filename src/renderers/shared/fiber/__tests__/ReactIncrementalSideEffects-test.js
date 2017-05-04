@@ -691,6 +691,154 @@ describe('ReactIncrementalSideEffects', () => {
     expect(ops).toEqual(['Bar', 'Baz', 'Bar', 'Bar']);
   });
 
+  fit('reuse work without dropping deletion effects', () => {
+    let ops = [];
+    let sibling;
+    let fooWrapper;
+
+    function Leaf(props) {
+      ops.push('Leaf: ' + props.prop);
+      return <span prop={props.prop} />;
+    }
+
+    function Indirection(props) {
+      return props.children;
+    }
+
+    class Sibling extends React.Component {
+      render() {
+        sibling = this;
+        ops.push('Sibling');
+        return <Leaf prop="D" />;
+      }
+    }
+
+    function Foo(props) {
+      ops.push('Foo');
+      return (
+        <Indirection>
+          {props.hideA ? null : <Leaf prop="A" />}
+          <Leaf prop="B" />
+          <Leaf prop="C" />
+        </Indirection>
+      );
+    }
+
+    let bailout = false;
+    class FooWrapper extends React.Component {
+      state = { hideA: false };
+
+      shouldComponentUpdate(nextProps, nextState) {
+        if (bailout) {
+          ops.push('FooWrapper (bailout)');
+          return false;
+        }
+        return true;
+      }
+      render() {
+        ops.push('FooWrapper');
+        fooWrapper = this;
+        return <Foo hideA={this.state.hideA} />;
+      }
+    }
+
+    function Parent() {
+      ops.push('Parent');
+      return (
+        <div>
+          <FooWrapper />
+          <Sibling />
+        </div>
+      );
+    }
+
+    ReactNoop.render(<Parent />);
+    ReactNoop.flush();
+    // Initial mount, with B in tree
+    expect(ops).toEqual([
+      'Parent',
+      'FooWrapper',
+      'Foo',
+      'Leaf: A',
+      'Leaf: B',
+      'Leaf: C',
+      'Sibling',
+      'Leaf: D',
+    ]);
+    expect(ReactNoop.getChildren()).toEqual([
+      div(
+        span('A'),
+        span('B'),
+        span('C'),
+        span('D'),
+      ),
+    ]);
+
+    ops = [];
+
+    // Schedule an update that removes A from the tree.
+    fooWrapper.setState({hideA: true});
+    // Partially render. Foo has completed, and a deletion effect for A was
+    // scheduled. But it hasn't committed yet.
+    ReactNoop.flushDeferredPri(50);
+    expect(ops).toEqual([
+      'FooWrapper',
+      'Foo',
+      'Leaf: B',
+      'Leaf: C',
+    ]);
+    expect(ReactNoop.getChildren()).toEqual([
+      div(
+        span('A'),
+        span('B'),
+        span('C'),
+        span('D'),
+      ),
+    ]);
+
+    ops = [];
+
+    // Interrupt with a high priority update.
+    ReactNoop.performAnimationWork(() => {
+      sibling.setState({});
+    });
+    ReactNoop.flushAnimationPri();
+    expect(ops).toEqual([
+      'Sibling',
+      'Leaf: D',
+    ]);
+    // Deletion effect still hasn't committed yet.
+    expect(ReactNoop.getChildren()).toEqual([
+      div(
+        span('A'),
+        span('B'),
+        span('C'),
+        span('D'),
+      ),
+    ]);
+
+    ops = [];
+    // Resume low-pri update. Deletion should be committed.
+    bailout = true;
+    ReactNoop.flush();
+    console.log('---------------------------------------');
+    expect(ops).toEqual([
+      'FooWrapper (bailout)',
+    ]);
+
+    ReactNoop.dumpTree();
+
+    expect(ReactNoop.getChildren()).toEqual([
+      div(
+        // A should have been removed
+        span('B'),
+        span('C'),
+        span('D'),
+      ),
+    ]);
+
+  });
+
   it('deprioritizes setStates that happens within a deprioritized tree', () => {
     var ops = [];
 

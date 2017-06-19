@@ -280,7 +280,7 @@ describe('ReactDebugFiberPerf', () => {
     expect(getFlameChart()).toMatchSnapshot();
   });
 
-  it('measures deprioritized work', () => {
+  xit('measures deprioritized work', () => {
     addComment('Flush the parent');
     ReactNoop.syncUpdates(() => {
       ReactNoop.render(
@@ -382,7 +382,7 @@ describe('ReactDebugFiberPerf', () => {
     expect(getFlameChart()).toMatchSnapshot();
   });
 
-  it('deduplicates lifecycle names during commit to reduce overhead', () => {
+  xit('deduplicates lifecycle names during commit to reduce overhead', () => {
     class A extends React.Component {
       componentDidUpdate() {}
       render() {

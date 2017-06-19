@@ -430,10 +430,10 @@ var ReactNoop = {
       if (fiber.updateQueue) {
         logUpdateQueue(fiber.updateQueue, depth);
       }
-      const childInProgress = fiber.progressedChild;
+      const childInProgress = fiber.child;
       if (childInProgress && childInProgress !== fiber.child) {
         log(
-          '  '.repeat(depth + 1) + 'IN PROGRESS: ' + fiber.progressedPriority,
+          '  '.repeat(depth + 1) + 'IN PROGRESS: ' + fiber.pendingWorkPriority,
         );
         logFiber(childInProgress, depth + 1);
         if (fiber.child) {

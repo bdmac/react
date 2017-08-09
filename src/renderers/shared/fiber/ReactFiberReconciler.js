@@ -123,6 +123,8 @@ export type HostConfig<T, P, I, TI, PI, C, CX, PL> = {
   prepareForCommit(): void,
   resetAfterCommit(): void,
 
+  now(): number,
+
   // Optional hydration
   canHydrateInstance?: (instance: I | TI, type: T, props: P) => boolean,
   canHydrateTextInstance?: (instance: I | TI, text: string) => boolean,
@@ -195,6 +197,7 @@ module.exports = function<T, P, I, TI, PI, C, CX, PL>(
   var {
     scheduleUpdate,
     getPriorityContext,
+    recalculateCurrentTime,
     batchedUpdates,
     unbatchedUpdates,
     flushSync,
@@ -232,6 +235,7 @@ module.exports = function<T, P, I, TI, PI, C, CX, PL>(
       element.type.prototype != null &&
       (element.type.prototype: any).unstable_isAsyncReactComponent === true;
     const priorityLevel = getPriorityContext(current, forceAsync);
+    const currentTime = recalculateCurrentTime();
     const nextState = {element};
     callback = callback === undefined ? null : callback;
     if (__DEV__) {
@@ -242,7 +246,7 @@ module.exports = function<T, P, I, TI, PI, C, CX, PL>(
         callback,
       );
     }
-    addTopLevelUpdate(current, nextState, callback, priorityLevel);
+    addTopLevelUpdate(current, nextState, callback, priorityLevel, currentTime);
     scheduleUpdate(current, priorityLevel);
   }
 

@@ -24,6 +24,7 @@ import type {TypeOfWork} from 'ReactTypeOfWork';
 import type {TypeOfInternalContext} from 'ReactTypeOfInternalContext';
 import type {TypeOfSideEffect} from 'ReactTypeOfSideEffect';
 import type {PriorityLevel} from 'ReactPriorityLevel';
+import type {ExpirationTime} from 'ReactFiberExpirationTime';
 import type {UpdateQueue} from 'ReactFiberUpdateQueue';
 
 var {
@@ -39,6 +40,8 @@ var {
 } = require('ReactTypeOfWork');
 
 var {NoWork} = require('ReactPriorityLevel');
+
+var {Done} = require('ReactFiberExpirationTime');
 
 var {NoContext} = require('ReactTypeOfInternalContext');
 
@@ -137,8 +140,9 @@ export type Fiber = {|
   firstEffect: Fiber | null,
   lastEffect: Fiber | null,
 
-  // This will be used to quickly determine if a subtree has no pending changes.
-  pendingWorkPriority: PriorityLevel,
+  // Represents a time in the future by which this work should be completed.
+  // This is also used to quickly determine if a subtree has no pending changes.
+  expirationTime: ExpirationTime,
 
   // This is a pooled version of a Fiber. Every fiber that gets updated will
   // eventually have a pair. There are cases when we can clean up pairs to save
@@ -192,7 +196,7 @@ function FiberNode(
   this.firstEffect = null;
   this.lastEffect = null;
 
-  this.pendingWorkPriority = NoWork;
+  this.expirationTime = Done;
 
   this.alternate = null;
 
@@ -236,7 +240,7 @@ function shouldConstruct(Component) {
 // This is used to create an alternate fiber to do work on.
 exports.createWorkInProgress = function(
   current: Fiber,
-  renderPriority: PriorityLevel,
+  expirationTime: ExpirationTime,
 ): Fiber {
   let workInProgress = current.alternate;
   if (workInProgress === null) {
@@ -273,7 +277,7 @@ exports.createWorkInProgress = function(
     workInProgress.lastEffect = null;
   }
 
-  workInProgress.pendingWorkPriority = renderPriority;
+  workInProgress.expirationTime = expirationTime;
 
   workInProgress.child = current.child;
   workInProgress.memoizedProps = current.memoizedProps;
@@ -299,7 +303,7 @@ exports.createHostRootFiber = function(): Fiber {
 exports.createFiberFromElement = function(
   element: ReactElement,
   internalContextTag: TypeOfInternalContext,
-  priorityLevel: PriorityLevel,
+  expirationTime: ExpirationTime,
 ): Fiber {
   let owner = null;
   if (__DEV__) {
@@ -313,7 +317,7 @@ exports.createFiberFromElement = function(
     owner,
   );
   fiber.pendingProps = element.props;
-  fiber.pendingWorkPriority = priorityLevel;
+  fiber.expirationTime = expirationTime;
 
   if (__DEV__) {
     fiber._debugSource = element._source;
@@ -326,24 +330,24 @@ exports.createFiberFromElement = function(
 exports.createFiberFromFragment = function(
   elements: ReactFragment,
   internalContextTag: TypeOfInternalContext,
-  priorityLevel: PriorityLevel,
+  expirationTime: ExpirationTime,
 ): Fiber {
   // TODO: Consider supporting keyed fragments. Technically, we accidentally
   // support that in the existing React.
   const fiber = createFiber(Fragment, null, internalContextTag);
   fiber.pendingProps = elements;
-  fiber.pendingWorkPriority = priorityLevel;
+  fiber.expirationTime = expirationTime;
   return fiber;
 };
 
 exports.createFiberFromText = function(
   content: string,
   internalContextTag: TypeOfInternalContext,
-  priorityLevel: PriorityLevel,
+  expirationTime: ExpirationTime,
 ): Fiber {
   const fiber = createFiber(HostText, null, internalContextTag);
   fiber.pendingProps = content;
-  fiber.pendingWorkPriority = priorityLevel;
+  fiber.expirationTime = expirationTime;
   return fiber;
 };
 
@@ -414,7 +418,7 @@ exports.createFiberFromHostInstanceForDeletion = function(): Fiber {
 exports.createFiberFromCoroutine = function(
   coroutine: ReactCoroutine,
   internalContextTag: TypeOfInternalContext,
-  priorityLevel: PriorityLevel,
+  expirationTime: ExpirationTime,
 ): Fiber {
   const fiber = createFiber(
     CoroutineComponent,
@@ -423,27 +427,28 @@ exports.createFiberFromCoroutine = function(
   );
   fiber.type = coroutine.handler;
   fiber.pendingProps = coroutine;
-  fiber.pendingWorkPriority = priorityLevel;
+  fiber.expirationTime = expirationTime;
   return fiber;
 };
 
 exports.createFiberFromYield = function(
   yieldNode: ReactYield,
   internalContextTag: TypeOfInternalContext,
-  priorityLevel: PriorityLevel,
+  expirationTime: ExpirationTime,
 ): Fiber {
   const fiber = createFiber(YieldComponent, null, internalContextTag);
+  fiber.expirationTime = expirationTime;
   return fiber;
 };
 
 exports.createFiberFromPortal = function(
   portal: ReactPortal,
   internalContextTag: TypeOfInternalContext,
-  priorityLevel: PriorityLevel,
+  expirationTime: ExpirationTime,
 ): Fiber {
   const fiber = createFiber(HostPortal, portal.key, internalContextTag);
   fiber.pendingProps = portal.children || [];
-  fiber.pendingWorkPriority = priorityLevel;
+  fiber.expirationTime = expirationTime;
   fiber.stateNode = {
     containerInfo: portal.containerInfo,
     implementation: portal.implementation,

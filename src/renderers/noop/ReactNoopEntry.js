@@ -407,7 +407,7 @@ var ReactNoop = {
         '  '.repeat(depth + 1) + '~',
         firstUpdate && firstUpdate.partialState,
         firstUpdate.callback ? 'with callback' : '',
-        '[' + firstUpdate.priorityLevel + ']',
+        '[' + firstUpdate.expirationTime + ']',
       );
       var next;
       while ((next = firstUpdate.next)) {
@@ -415,7 +415,7 @@ var ReactNoop = {
           '  '.repeat(depth + 1) + '~',
           next.partialState,
           next.callback ? 'with callback' : '',
-          '[' + firstUpdate.priorityLevel + ']',
+          '[' + firstUpdate.expirationTime + ']',
         );
       }
     }
@@ -425,7 +425,7 @@ var ReactNoop = {
         '  '.repeat(depth) +
           '- ' +
           (fiber.type ? fiber.type.name || fiber.type : '[root]'),
-        '[' + fiber.pendingWorkPriority + (fiber.pendingProps ? '*' : '') + ']',
+        '[' + fiber.expirationTime + (fiber.pendingProps ? '*' : '') + ']',
       );
       if (fiber.updateQueue) {
         logUpdateQueue(fiber.updateQueue, depth);

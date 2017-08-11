@@ -85,6 +85,8 @@ function removeChild(
   parentInstance.children.splice(index, 1);
 }
 
+let elapsedTimeInMs = 0;
+
 var NoopRenderer = ReactFiberReconciler({
   getRootHostContext() {
     if (failInBeginPhase) {
@@ -205,8 +207,7 @@ var NoopRenderer = ReactFiberReconciler({
   resetAfterCommit(): void {},
 
   now(): number {
-    // TODO: Add an API to advance time.
-    return 0;
+    return elapsedTimeInMs;
   },
 });
 
@@ -341,6 +342,14 @@ var ReactNoop = {
       }
     }
     expect(actual).toEqual(expected);
+  },
+
+  expire(ms: number): void {
+    elapsedTimeInMs += ms;
+  },
+
+  flushExpired(): Array<mixed> {
+    return ReactNoop.flushUnitsOfWork(0);
   },
 
   yield(value: mixed) {

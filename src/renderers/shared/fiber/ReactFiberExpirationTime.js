@@ -28,11 +28,13 @@ const invariant = require('fbjs/lib/invariant');
 export type ExpirationTime = number;
 
 const Done = 0;
-exports.Done = Done;
-
-const MAGIC_NUMBER_OFFSET = 2;
-
+const Sync = 1;
+const Task = 2;
 const Never = Infinity;
+
+const MAGIC_NUMBER_OFFSET = 10;
+
+exports.Done = Done;
 exports.Never = Infinity;
 
 // 1 unit of expiration time represents 10ms.
@@ -59,11 +61,9 @@ function priorityToExpirationTime(
     case NoWork:
       return Done;
     case SynchronousPriority:
-      // Return a number lower than the current time, but higher than Done.
-      return MAGIC_NUMBER_OFFSET - 1;
+      return Sync;
     case TaskPriority:
-      // Return the current time, so that this work completes in this batch.
-      return currentTime;
+      return Task;
     case HighPriority:
       // Should complete within ~100ms. 120ms max.
       return msToExpirationTime(ceiling(100, 20));
@@ -73,7 +73,6 @@ function priorityToExpirationTime(
     case OffscreenPriority:
       return Never;
     default:
-      console.log(priorityLevel);
       invariant(
         false,
         'Switch statement should be exhuastive. ' +
@@ -91,16 +90,19 @@ function expirationTimeToPriorityLevel(
   expirationTime: ExpirationTime,
 ): PriorityLevel {
   // First check for magic values
-  if (expirationTime === Done) {
-    return NoWork;
+  switch (expirationTime) {
+    case Done:
+      return NoWork;
+    case Sync:
+      return SynchronousPriority;
+    case Task:
+      return TaskPriority;
+    case Never:
+      return OffscreenPriority;
+    default:
+      break;
   }
-  if (expirationTime === Never) {
-    return OffscreenPriority;
-  }
-  if (expirationTime < currentTime) {
-    return SynchronousPriority;
-  }
-  if (expirationTime === currentTime) {
+  if (expirationTime <= currentTime) {
     return TaskPriority;
   }
   // TODO: We don't currently distinguish between high and low priority.

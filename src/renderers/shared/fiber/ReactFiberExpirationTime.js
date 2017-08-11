@@ -123,11 +123,3 @@ function expirationTimeToPriorityLevel(
   return LowPriority;
 }
 exports.expirationTimeToPriorityLevel = expirationTimeToPriorityLevel;
-
-function earlierExpirationTime(
-  t1: ExpirationTime,
-  t2: ExpirationTime,
-): ExpirationTime {
-  return t1 !== Done && (t2 === Done || t2 > t1) ? t1 : t2;
-}
-exports.earlierExpirationTime = earlierExpirationTime;

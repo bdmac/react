@@ -98,7 +98,12 @@ type DOMContainer =
     _reactRootContainer: ?Object,
   });
 
-type Container = Element | Document;
+type Container =
+  | Element
+  | Document
+  // If the DOM container is lazily provided, the container is the namespace uri
+  | string;
+
 type Props = {
   autoFocus?: boolean,
   children?: mixed,
@@ -116,6 +121,32 @@ type HostContext = HostContextDev | HostContextProd;
 
 let eventsEnabled: ?boolean = null;
 let selectionInformation: ?mixed = null;
+
+function getOwnerDocument(container: Container): Document {
+  let ownerDocument;
+  if (typeof container === 'string') {
+    ownerDocument = document;
+  } else if (
+    container.nodeType === DOCUMENT_NODE ||
+    container.nodeType === DOCUMENT_FRAGMENT_NODE
+  ) {
+    ownerDocument = (container: any);
+  } else {
+    ownerDocument = container.ownerDocument;
+  }
+  return ownerDocument;
+}
+
+function ensureDOMContainer(container: Container): Element | Document {
+  invariant(
+    typeof container !== 'string',
+    // TODO: Better error message. Probably should have errored already, when
+    // validating the result of getContainer.
+    'Container should have resolved by now',
+  );
+  const domContainer: Element | Document = (container: any);
+  return domContainer;
+}
 
 /**
  * True if the supplied DOM node is a valid node element.
@@ -167,7 +198,14 @@ var DOMRenderer = ReactFiberReconciler({
   getRootHostContext(rootContainerInstance: Container): HostContext {
     let type;
     let namespace;
-    if (rootContainerInstance.nodeType === DOCUMENT_NODE) {
+
+    if (typeof rootContainerInstance === 'string') {
+      namespace = rootContainerInstance;
+      if (__DEV__) {
+        return {namespace, ancestorInfo: null};
+      }
+      return namespace;
+    } else if (rootContainerInstance.nodeType === DOCUMENT_NODE) {
       type = '#document';
       let root = (rootContainerInstance: any).documentElement;
       namespace = root ? root.namespaceURI : getChildNamespace(null, '');
@@ -253,7 +291,7 @@ var DOMRenderer = ReactFiberReconciler({
     const domElement: Instance = createElement(
       type,
       props,
-      rootContainerInstance,
+      getOwnerDocument(rootContainerInstance),
       parentNamespace,
     );
     precacheFiberNode(internalInstanceHandle, domElement);
@@ -274,7 +312,8 @@ var DOMRenderer = ReactFiberReconciler({
     props: Props,
     rootContainerInstance: Container,
   ): boolean {
-    setInitialProperties(domElement, type, props, rootContainerInstance);
+    const ownerDocument = getOwnerDocument(rootContainerInstance);
+    setInitialProperties(domElement, type, props, ownerDocument);
     return shouldAutoFocusHostComponent(type, props);
   },
 
@@ -302,13 +341,8 @@ var DOMRenderer = ReactFiberReconciler({
         validateDOMNesting(null, string, null, ownAncestorInfo);
       }
     }
-    return diffProperties(
-      domElement,
-      type,
-      oldProps,
-      newProps,
-      rootContainerInstance,
-    );
+    const ownerDocument = getOwnerDocument(rootContainerInstance);
+    return diffProperties(domElement, type, oldProps, newProps, ownerDocument);
   },
 
   commitMount(
@@ -389,10 +423,11 @@ var DOMRenderer = ReactFiberReconciler({
     container: Container,
     child: Instance | TextInstance,
   ): void {
-    if (container.nodeType === COMMENT_NODE) {
-      (container.parentNode: any).insertBefore(child, container);
+    const domContainer = ensureDOMContainer(container);
+    if (domContainer.nodeType === COMMENT_NODE) {
+      (domContainer.parentNode: any).insertBefore(child, container);
     } else {
-      container.appendChild(child);
+      domContainer.appendChild(child);
     }
   },
 
@@ -409,10 +444,11 @@ var DOMRenderer = ReactFiberReconciler({
     child: Instance | TextInstance,
     beforeChild: Instance | TextInstance,
   ): void {
-    if (container.nodeType === COMMENT_NODE) {
-      (container.parentNode: any).insertBefore(child, beforeChild);
+    const domContainer = ensureDOMContainer(container);
+    if (domContainer.nodeType === COMMENT_NODE) {
+      (domContainer.parentNode: any).insertBefore(child, beforeChild);
     } else {
-      container.insertBefore(child, beforeChild);
+      domContainer.insertBefore(child, beforeChild);
     }
   },
 
@@ -424,10 +460,11 @@ var DOMRenderer = ReactFiberReconciler({
     container: Container,
     child: Instance | TextInstance,
   ): void {
-    if (container.nodeType === COMMENT_NODE) {
-      (container.parentNode: any).removeChild(child);
+    const domContainer = ensureDOMContainer(container);
+    if (domContainer.nodeType === COMMENT_NODE) {
+      (domContainer.parentNode: any).removeChild(child);
     } else {
-      container.removeChild(child);
+      domContainer.removeChild(child);
     }
   },
 
@@ -473,6 +510,7 @@ var DOMRenderer = ReactFiberReconciler({
   getFirstHydratableChild(
     parentInstance: Container | Instance,
   ): null | Instance | TextInstance {
+    parentInstance = ensureDOMContainer(parentInstance);
     let next = parentInstance.firstChild;
     // Skip non-hydratable nodes.
     while (
@@ -504,12 +542,13 @@ var DOMRenderer = ReactFiberReconciler({
     } else {
       parentNamespace = ((hostContext: any): HostContextProd);
     }
+    const ownerDocument = getOwnerDocument(rootContainerInstance);
     return diffHydratedProperties(
       instance,
       type,
       props,
       parentNamespace,
-      rootContainerInstance,
+      ownerDocument,
     );
   },
 
@@ -526,6 +565,7 @@ var DOMRenderer = ReactFiberReconciler({
     parentInstance: Instance | Container,
     instance: Instance | TextInstance,
   ) {
+    parentInstance = ensureDOMContainer(parentInstance);
     if (instance.nodeType === 1) {
       warnForDeletedHydratableElement(parentInstance, (instance: any));
     } else {
@@ -538,6 +578,7 @@ var DOMRenderer = ReactFiberReconciler({
     type: string,
     props: Props,
   ) {
+    parentInstance = ensureDOMContainer(parentInstance);
     warnForInsertedHydratedElement(parentInstance, type, props);
   },
 
@@ -545,6 +586,7 @@ var DOMRenderer = ReactFiberReconciler({
     parentInstance: Instance | Container,
     text: string,
   ) {
+    parentInstance = ensureDOMContainer(parentInstance);
     warnForInsertedHydratedText(parentInstance, text);
   },
 

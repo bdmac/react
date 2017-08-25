@@ -22,7 +22,6 @@ const {Done} = require('ReactFiberExpirationTime');
 
 const {ClassComponent, HostRoot} = require('ReactTypeOfWork');
 
-const invariant = require('fbjs/lib/invariant');
 if (__DEV__) {
   var warning = require('fbjs/lib/warning');
 }
@@ -97,7 +96,7 @@ function cloneUpdate(update: Update): Update {
 
 const COALESCENCE_THRESHOLD: ExpirationTime = 10;
 
-function insertUpdateIntoQueue(
+function insertUpdateIntoPosition(
   queue: UpdateQueue,
   update: Update,
   insertAfter: Update | null,
@@ -112,6 +111,8 @@ function insertUpdateIntoQueue(
     // could lead to starvation, so we stop coalescing once the time until the
     // expiration time reaches a certain threshold.
     if (
+      // Only coalesce if a priority level is specified
+      update.priorityLevel !== null &&
       insertAfter !== null &&
       insertAfter.priorityLevel === update.priorityLevel
     ) {
@@ -209,7 +210,7 @@ function ensureUpdateQueues(fiber: Fiber) {
 // we shouldn't make a copy.
 //
 // If the update is cloned, it returns the cloned update.
-function insertUpdate(
+function insertUpdateIntoFiber(
   fiber: Fiber,
   update: Update,
   currentTime: ExpirationTime,
@@ -240,7 +241,7 @@ function insertUpdate(
 
   if (queue2 === null) {
     // If there's no alternate queue, there's nothing else to do but insert.
-    insertUpdateIntoQueue(
+    insertUpdateIntoPosition(
       queue1,
       update,
       insertAfter1,
@@ -258,7 +259,7 @@ function insertUpdate(
 
   // Now we can insert into the first queue. This must come after finding both
   // insertion positions because it mutates the list.
-  insertUpdateIntoQueue(
+  insertUpdateIntoPosition(
     queue1,
     update,
     insertAfter1,
@@ -287,7 +288,7 @@ function insertUpdate(
     // The insertion positions are different, so we need to clone the update and
     // insert the clone into the alternate queue.
     const update2 = cloneUpdate(update);
-    insertUpdateIntoQueue(
+    insertUpdateIntoPosition(
       queue2,
       update2,
       insertAfter2,
@@ -297,71 +298,24 @@ function insertUpdate(
     return update2;
   }
 }
+exports.insertUpdateIntoFiber = insertUpdateIntoFiber;
 
-function addUpdate(
-  fiber: Fiber,
-  partialState: PartialState<any, any> | null,
-  callback: mixed,
-  priorityLevel: PriorityLevel | null,
-  expirationTime: ExpirationTime,
+function insertUpdateIntoQueue(
+  queue: UpdateQueue,
+  update: Update,
   currentTime: ExpirationTime,
-): void {
-  const update = {
-    priorityLevel,
-    expirationTime,
-    partialState,
-    callback,
-    isReplace: false,
-    isForced: false,
-    isTopLevelUnmount: false,
-    next: null,
-  };
-  insertUpdate(fiber, update, currentTime);
+) {
+  const insertAfter = findInsertionPosition(queue, update);
+  const insertBefore = insertAfter !== null ? insertAfter.next : null;
+  insertUpdateIntoPosition(
+    queue,
+    update,
+    insertAfter,
+    insertBefore,
+    currentTime,
+  );
 }
-exports.addUpdate = addUpdate;
-
-function addReplaceUpdate(
-  fiber: Fiber,
-  state: any | null,
-  callback: Callback | null,
-  priorityLevel: PriorityLevel | null,
-  expirationTime: ExpirationTime,
-  currentTime: ExpirationTime,
-): void {
-  const update = {
-    priorityLevel,
-    expirationTime,
-    partialState: state,
-    callback,
-    isReplace: true,
-    isForced: false,
-    isTopLevelUnmount: false,
-    next: null,
-  };
-  insertUpdate(fiber, update, currentTime);
-}
-exports.addReplaceUpdate = addReplaceUpdate;
-
-function addForceUpdate(
-  fiber: Fiber,
-  callback: Callback | null,
-  priorityLevel: PriorityLevel | null,
-  expirationTime: ExpirationTime,
-  currentTime: ExpirationTime,
-): void {
-  const update = {
-    priorityLevel,
-    expirationTime,
-    partialState: null,
-    callback,
-    isReplace: false,
-    isForced: true,
-    isTopLevelUnmount: false,
-    next: null,
-  };
-  insertUpdate(fiber, update, currentTime);
-}
-exports.addForceUpdate = addForceUpdate;
+exports.insertUpdateIntoQueue = insertUpdateIntoQueue;
 
 function getUpdateExpirationTime(fiber: Fiber): ExpirationTime {
   const updateQueue = fiber.updateQueue;
@@ -375,48 +329,6 @@ function getUpdateExpirationTime(fiber: Fiber): ExpirationTime {
 }
 exports.getUpdateExpirationTime = getUpdateExpirationTime;
 
-function addTopLevelUpdate(
-  fiber: Fiber,
-  partialState: PartialState<any, any>,
-  callback: Callback | null,
-  priorityLevel: PriorityLevel | null,
-  expirationTime: ExpirationTime,
-  currentTime: ExpirationTime,
-): void {
-  const isTopLevelUnmount = partialState.element === null;
-
-  const update = {
-    priorityLevel,
-    expirationTime,
-    partialState,
-    callback,
-    isReplace: false,
-    isForced: false,
-    isTopLevelUnmount,
-    next: null,
-  };
-  const update2 = insertUpdate(fiber, update, currentTime);
-
-  if (isTopLevelUnmount) {
-    // TODO: Redesign the top-level mount/update/unmount API to avoid this
-    // special case.
-    const queue1 = _queue1;
-    const queue2 = _queue2;
-
-    // Drop all updates that are lower-priority, so that the tree is not
-    // remounted. We need to do this for both queues.
-    if (queue1 !== null && update.next !== null) {
-      update.next = null;
-      queue1.last = update;
-    }
-    if (queue2 !== null && update2 !== null && update2.next !== null) {
-      update2.next = null;
-      queue2.last = update;
-    }
-  }
-}
-exports.addTopLevelUpdate = addTopLevelUpdate;
-
 function getStateFromUpdate(update, instance, prevState, props) {
   const partialState = update.partialState;
   if (typeof partialState === 'function') {
@@ -427,28 +339,13 @@ function getStateFromUpdate(update, instance, prevState, props) {
   }
 }
 
-function beginUpdateQueue(
-  current: Fiber | null,
-  workInProgress: Fiber,
+function processUpdateQueue(
   queue: UpdateQueue,
-  instance: any,
-  prevState: any,
-  props: any,
+  instance: mixed,
+  prevState: Object,
+  props: mixed,
   renderExpirationTime: ExpirationTime,
-): any {
-  if (current !== null && current.updateQueue === queue) {
-    // We need to create a work-in-progress queue, by cloning the current queue.
-    const currentQueue = queue;
-    queue = workInProgress.updateQueue = {
-      first: currentQueue.first,
-      last: currentQueue.last,
-      // These fields are no longer valid because they were already committed.
-      // Reset them.
-      callbackList: null,
-      hasForceUpdate: false,
-    };
-  }
-
+): mixed {
   if (__DEV__) {
     // Set this flag so we can warn if setState is called inside the update
     // function of another setState.
@@ -499,18 +396,12 @@ function beginUpdateQueue(
     ) {
       callbackList = callbackList !== null ? callbackList : [];
       callbackList.push(update.callback);
-      workInProgress.effectTag |= CallbackEffect;
     }
     update = update.next;
   }
 
   queue.callbackList = callbackList;
   queue.hasForceUpdate = hasForceUpdate;
-
-  if (queue.first === null && callbackList === null && !hasForceUpdate) {
-    // The queue is empty and there are no callbacks. We can reset it.
-    workInProgress.updateQueue = null;
-  }
 
   if (__DEV__) {
     // No longer processing.
@@ -519,30 +410,49 @@ function beginUpdateQueue(
 
   return state;
 }
-exports.beginUpdateQueue = beginUpdateQueue;
+exports.insertUpdateIntoQueue = insertUpdateIntoQueue;
 
-function commitCallbacks(
-  finishedWork: Fiber,
+function beginUpdateQueue(
+  current: Fiber | null,
+  workInProgress: Fiber,
   queue: UpdateQueue,
-  context: mixed,
-) {
-  const callbackList = queue.callbackList;
-  if (callbackList === null) {
-    return;
+  instance: any,
+  prevState: any,
+  props: any,
+  renderExpirationTime: ExpirationTime,
+): any {
+  if (current !== null && current.updateQueue === queue) {
+    // We need to create a work-in-progress queue, by cloning the current queue.
+    const currentQueue = queue;
+    queue = workInProgress.updateQueue = {
+      first: currentQueue.first,
+      last: currentQueue.last,
+      // These fields are no longer valid because they were already committed.
+      // Reset them.
+      callbackList: null,
+      hasForceUpdate: false,
+    };
   }
 
-  // Set the list to null to make sure they don't get called more than once.
-  queue.callbackList = null;
+  const state = processUpdateQueue(
+    queue,
+    instance,
+    prevState,
+    props,
+    renderExpirationTime,
+  );
 
-  for (let i = 0; i < callbackList.length; i++) {
-    const callback = callbackList[i];
-    invariant(
-      typeof callback === 'function',
-      'Invalid argument passed as callback. Expected a function. Instead ' +
-        'received: %s',
-      callback,
-    );
-    callback.call(context);
+  const updatedQueue = workInProgress.updateQueue;
+  if (updatedQueue !== null) {
+    const callbackList = updatedQueue.callbackList;
+    if (callbackList !== null) {
+      workInProgress.effectTag |= CallbackEffect;
+    } else if (updatedQueue.first === null && !updatedQueue.hasForceUpdate) {
+      // The queue is empty. We can reset it.
+      workInProgress.updateQueue = null;
+    }
   }
+
+  return state;
 }
-exports.commitCallbacks = commitCallbacks;
+exports.beginUpdateQueue = beginUpdateQueue;

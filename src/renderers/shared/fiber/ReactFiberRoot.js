@@ -13,6 +13,7 @@
 'use strict';
 
 import type {Fiber} from 'ReactFiber';
+import type {UpdateQueue} from 'ReactFiberUpdateQueue';
 import type {ExpirationTime} from 'ReactFiberExpirationTime';
 
 const {createHostRootFiber} = require('ReactFiber');
@@ -27,6 +28,9 @@ export type FiberRoot = {
   isScheduled: boolean,
   // The time at which this root completed.
   completedAt: ExpirationTime,
+  // A queue of callbacks that fire once their corresponding expiration time
+  // has completed. Only fired once.
+  completionCallbacks: UpdateQueue,
   // The work schedule is a linked list.
   nextScheduledRoot: FiberRoot | null,
   // Top context object, used by renderSubtreeIntoContainer
@@ -53,6 +57,7 @@ exports.createFiberRoot = function(containerInfo: any): FiberRoot {
     containerInfo: containerInfo,
     isScheduled: false,
     completedAt: Done,
+    completionCallbacks: null,
     nextScheduledRoot: null,
     context: null,
     pendingContext: null,

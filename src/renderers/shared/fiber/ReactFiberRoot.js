@@ -18,6 +18,7 @@ import type {ExpirationTime} from 'ReactFiberExpirationTime';
 
 const {createHostRootFiber} = require('ReactFiber');
 const {getUpdateQueueExpirationTime} = require('ReactFiberUpdateQueue');
+
 const {Done} = require('ReactFiberExpirationTime');
 
 export type FiberRoot = {

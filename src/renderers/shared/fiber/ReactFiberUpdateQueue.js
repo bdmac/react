@@ -30,8 +30,7 @@ type PartialState<State, Props> =
   | $Subtype<State>
   | ((prevState: State, props: Props) => $Subtype<State>);
 
-// Callbacks are not validated until invocation
-type Callback = mixed;
+type Callback = () => mixed;
 
 export type Update<State> = {
   priorityLevel: PriorityLevel | null,
@@ -69,7 +68,7 @@ let _queue1;
 let _queue2;
 
 function createUpdateQueue<State>(): UpdateQueue<State> {
-  const queue: UpdateQueue = {
+  const queue: UpdateQueue<State> = {
     first: null,
     last: null,
     hasForceUpdate: false,
@@ -82,7 +81,7 @@ function createUpdateQueue<State>(): UpdateQueue<State> {
 }
 exports.createUpdateQueue = createUpdateQueue;
 
-function cloneUpdate(update: Update<State>): Update<State> {
+function cloneUpdate<State>(update: Update<State>): Update<State> {
   return {
     priorityLevel: update.priorityLevel,
     expirationTime: update.expirationTime,
@@ -97,7 +96,7 @@ function cloneUpdate(update: Update<State>): Update<State> {
 
 const COALESCENCE_THRESHOLD: ExpirationTime = 10;
 
-function insertUpdateIntoPosition(
+function insertUpdateIntoPosition<State>(
   queue: UpdateQueue<State>,
   update: Update<State>,
   insertAfter: Update<State> | null,
@@ -138,7 +137,7 @@ function insertUpdateIntoPosition(
 
 // Returns the update after which the incoming update should be inserted into
 // the queue, or null if it should be inserted at beginning.
-function findInsertionPosition(
+function findInsertionPosition<State>(
   queue: UpdateQueue<State>,
   update: Update<State>,
 ): Update<State> | null {
@@ -214,7 +213,7 @@ function ensureUpdateQueues(fiber: Fiber) {
 // we shouldn't make a copy.
 //
 // If the update is cloned, it returns the cloned update.
-function insertUpdateIntoFiber(
+function insertUpdateIntoFiber<State>(
   fiber: Fiber,
   update: Update<State>,
   currentTime: ExpirationTime,
@@ -304,8 +303,8 @@ function insertUpdateIntoFiber(
 }
 exports.insertUpdateIntoFiber = insertUpdateIntoFiber;
 
-function insertUpdateIntoQueue(
-  queue: UpdateQueue,
+function insertUpdateIntoQueue<State>(
+  queue: UpdateQueue<State>,
   update: Update<State>,
   currentTime: ExpirationTime,
 ) {
@@ -344,13 +343,14 @@ function getStateFromUpdate(update, instance, prevState, props) {
   const partialState = update.partialState;
   if (typeof partialState === 'function') {
     const updateFn = partialState;
+    // $FlowFixMe - Idk how to type State correctly.
     return updateFn.call(instance, prevState, props);
   } else {
     return partialState;
   }
 }
 
-function processUpdateQueue(
+function processUpdateQueue<State>(
   queue: UpdateQueue<State>,
   instance: mixed,
   prevState: State,
@@ -389,6 +389,7 @@ function processUpdateQueue(
       partialState = getStateFromUpdate(update, instance, state, props);
       if (partialState) {
         if (dontMutatePrevState) {
+          // $FlowFixMe - Idk how to type State properly.
           state = Object.assign({}, state, partialState);
         } else {
           state = Object.assign(state, partialState);
@@ -423,7 +424,7 @@ function processUpdateQueue(
 }
 exports.processUpdateQueue = processUpdateQueue;
 
-function beginUpdateQueue(
+function beginUpdateQueue<State>(
   current: Fiber | null,
   workInProgress: Fiber,
   queue: UpdateQueue<State>,

@@ -113,7 +113,7 @@ module.exports = function(
         callback,
         isReplace: false,
         isForced: false,
-        isTopLevelUnmount: false,
+        nextCallback: null,
         next: null,
       };
       insertUpdateIntoFiber(fiber, update, currentTime);
@@ -138,7 +138,7 @@ module.exports = function(
         callback,
         isReplace: true,
         isForced: false,
-        isTopLevelUnmount: false,
+        nextCallback: null,
         next: null,
       };
       insertUpdateIntoFiber(fiber, update, currentTime);
@@ -163,7 +163,7 @@ module.exports = function(
         callback,
         isReplace: false,
         isForced: true,
-        isTopLevelUnmount: false,
+        nextCallback: null,
         next: null,
       };
       insertUpdateIntoFiber(fiber, update, currentTime);
@@ -458,7 +458,7 @@ module.exports = function(
     const unmaskedContext = getUnmaskedContext(workInProgress);
 
     instance.props = props;
-    instance.state = state;
+    instance.state = workInProgress.memoizedState = state;
     instance.refs = emptyObject;
     instance.context = getMaskedContext(workInProgress, unmaskedContext);
 
@@ -482,7 +482,6 @@ module.exports = function(
           workInProgress,
           updateQueue,
           instance,
-          state,
           props,
           renderExpirationTime,
         );
@@ -649,7 +648,6 @@ module.exports = function(
         workInProgress,
         workInProgress.updateQueue,
         instance,
-        oldState,
         newProps,
         renderExpirationTime,
       );

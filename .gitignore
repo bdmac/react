@@ -20,6 +20,8 @@ docs/downloads/*.zip
 docs/vendor/bundle
 fixtures/dom/public/react-dom.js
 fixtures/dom/public/react.js
+fixtures/prerendering-demo/public/react-dom.development.js
+fixtures/prerendering-demo/public/react.development.js
 test/the-files-to-test.generated.js
 *.log*
 chrome-user-data

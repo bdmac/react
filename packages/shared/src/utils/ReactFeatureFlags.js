@@ -13,11 +13,13 @@
 export type FeatureFlags = {|
   enableAsyncSubtreeAPI: boolean,
   enableAsyncSchedulingByDefaultInReactDOM: boolean,
+  createRoot: boolean,
 |};
 
 var ReactFeatureFlags: FeatureFlags = {
   enableAsyncSubtreeAPI: true,
   enableAsyncSchedulingByDefaultInReactDOM: false,
+  createRoot: false,
 };
 
 if (__DEV__) {

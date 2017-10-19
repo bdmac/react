@@ -5,6 +5,7 @@
 jest.mock('ReactFeatureFlags', () => {
   const flags = require.requireActual('ReactFeatureFlags');
   return Object.assign({}, flags, {
+    createRoot: true,
     disableNewFiberFeatures: true,
   });
 });

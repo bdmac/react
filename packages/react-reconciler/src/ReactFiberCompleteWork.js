@@ -52,6 +52,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   hostContext: HostContext<C, CX>,
   hydrationContext: HydrationContext<C, CX>,
   captureThrownValues: () => boolean,
+  captureErrors: () => boolean,
 ) {
   const {
     createInstance,
@@ -413,7 +414,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
           instance !== null &&
           typeof instance.componentDidCatch === 'function'
         ) {
-          const didCapture = captureThrownValues();
+          const didCapture = captureErrors();
           if (didCapture) {
             workInProgress.effectTag |= Err;
             return workInProgress;

@@ -13,7 +13,7 @@ import type {HostContext} from './ReactFiberHostContext';
 import type {HydrationContext} from './ReactFiberHydrationContext';
 import type {FiberRoot} from './ReactFiberRoot';
 import type {ExpirationTime} from './ReactFiberExpirationTime';
-import type {CapturedError} from './ReactFiberScheduler';
+import type {CapturedValue} from './ReactCapturedValue';
 
 import {
   IndeterminateComponent,
@@ -36,6 +36,7 @@ import {
 } from 'shared/ReactTypeOfSideEffect';
 import {ReactCurrentOwner} from 'shared/ReactGlobalSharedState';
 import {debugRenderPhaseSideEffects} from 'shared/ReactFeatureFlags';
+import {getStackAddendumByWorkInProgressFiber} from 'shared/ReactFiberComponentTreeHook';
 import invariant from 'fbjs/lib/invariant';
 import getComponentName from 'shared/getComponentName';
 import warning from 'fbjs/lib/warning';
@@ -57,9 +58,10 @@ import {
   pushTopLevelContextObject,
   invalidateContextProvider,
 } from './ReactFiberContext';
+
 import {NoWork, Never} from './ReactFiberExpirationTime';
 import {AsyncUpdates} from './ReactTypeOfInternalContext';
-import {logError} from './ReactFiberScheduler';
+import {logError} from './ReactCapturedValue';
 
 let warnedAboutStatelessRefs;
 let didWarnAboutBadClass;
@@ -209,7 +211,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   function updateClassComponent(
     current: Fiber | null,
     workInProgress: Fiber,
-    capturedValues: Array<mixed> | null,
+    capturedValues: Array<CapturedValue<mixed>> | null,
     renderExpirationTime: ExpirationTime,
   ) {
     // Push context providers early to prevent context stack mismatches.
@@ -223,10 +225,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       didCaptureError = true;
       invariant(instance !== null, 'Expected class to have an instance.');
       // TODO: Pattern matching. Check that this is an error.
-      const capturedError: CapturedError = (capturedValues[0]: any);
-      logError(workInProgress, capturedError);
-      const error = capturedError.error;
-      instance.componentDidCatch(error);
+      const capturedValue: CapturedValue<mixed> = (capturedValues[0]: any);
+      if (capturedValue.isError) {
+        logError(capturedValue);
+        instance.componentDidCatch(capturedValue.value);
+      }
     }
 
     let shouldUpdate;
@@ -372,11 +375,20 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     capturedValues,
     renderExpirationTime,
   ) {
-    // TODO: Pattern matching. Check that this is an error.
-    const didError = true;
-    const capturedError: CapturedError = (capturedValues[0]: any);
-    const error = capturedError.error;
+    const capturedValue: CapturedValue<mixed> = (capturedValues[0]: any);
+    if (capturedValue.isError) {
+      logError(capturedValue);
+    } else {
+      capturedValue.isError = true;
+      const source = capturedValue.source;
+      if (source !== null) {
+        capturedValue.stack = getStackAddendumByWorkInProgressFiber(source);
+      }
+    }
+    const error = capturedValue.value;
     markUncaughtError(error);
+
+    const didError = true;
     reconcileChildrenAtExpirationTime(
       current,
       workInProgress,
@@ -395,9 +407,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   ) {
     pushHostRootContext(workInProgress);
     if (capturedValues !== null) {
-      // TODO: Pattern matching. Check that this is an error.
-      const capturedError: CapturedError = (capturedValues[0]: any);
-      logError(workInProgress, capturedError);
       return unmountFailedRoot(
         current,
         workInProgress,
@@ -421,9 +430,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       if (updateQueue !== null && updateQueue.capturedValues !== null) {
         capturedValues = updateQueue.capturedValues;
         updateQueue.capturedValues = null;
-        // TODO: Pattern matching. Check that this is an error.
-        const capturedError: CapturedError = (capturedValues[0]: any);
-        logError(workInProgress, capturedError);
         memoizeState(workInProgress, state);
         return unmountFailedRoot(
           current,
@@ -805,7 +811,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   function beginWork(
     current: Fiber | null,
     workInProgress: Fiber,
-    capturedValues: Array<mixed> | null,
+    capturedValues: Array<CapturedValue<mixed>> | null,
     renderExpirationTime: ExpirationTime,
   ): Fiber | null {
     // The effect list is no longer valid.

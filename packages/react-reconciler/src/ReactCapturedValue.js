@@ -9,6 +9,8 @@
 
 import type {Fiber} from './ReactFiber';
 
+import invariant from 'fbjs/lib/invariant';
+
 import {ClassComponent} from 'shared/ReactTypeOfWork';
 import getComponentName from 'shared/getComponentName';
 import {getStackAddendumByWorkInProgressFiber} from 'shared/ReactFiberComponentTreeHook';
@@ -28,8 +30,8 @@ export type CapturedValue<T> = {
 };
 
 // Object that is passed to the error logger module.
-// TODO: This is different for legacy reasons, but I don't think it's
-// exposed to anyone outside FB, so we can probably change it
+// TODO: CapturedError is different from CapturedValue for legacy reasons, but I
+// don't think it's exposed to anyone outside FB, so we can probably change it.
 export type CapturedError = {
   componentName: string | null,
   componentStack: string,
@@ -40,6 +42,77 @@ export type CapturedError = {
   willRetry: boolean,
 };
 
+// TODO: Use module constructor
+let capturedValueStack: Array<Array<CapturedValue<mixed>> | null> = [];
+let index = -1;
+
+export function pushFrame() {
+  index += 1;
+  capturedValueStack[index] = null;
+}
+
+function getCurrentFrame() {
+  const currentFrame = capturedValueStack[index];
+  invariant(
+    currentFrame !== undefined,
+    'Expected a current frame. This error is likely caused by a bug in ' +
+      'React. Please file an issue.',
+  );
+  return currentFrame;
+}
+
+export function frameHasCapturedValues() {
+  return getCurrentFrame() !== null;
+}
+
+export function addValueToFrame(capturedValue: CapturedValue<mixed>): void {
+  const currentFrame = getCurrentFrame();
+  if (currentFrame === null) {
+    capturedValueStack[index] = [capturedValue];
+  } else {
+    currentFrame.push(capturedValue);
+  }
+}
+
+export function captureValuesOnFrame(): Array<CapturedValue<mixed>> | null {
+  const values = getCurrentFrame();
+  capturedValueStack[index] = null;
+  return values;
+}
+
+export function setValuesOnFrame(values: Array<CapturedValue<mixed>>) {
+  capturedValueStack[index] = values;
+}
+
+export function popFrameAndBubbleValues() {
+  const currentFrame = getCurrentFrame();
+  index -= 1;
+  if (currentFrame === null) {
+    // No values to bubble. Do nothing.
+    return;
+  }
+  if (index === -1) {
+    // Reached the bottom of the stack. Do nothing.
+    return;
+  }
+  const previousFrame = getCurrentFrame();
+  if (previousFrame === null) {
+    capturedValueStack[index] = currentFrame;
+  } else {
+    for (let i = 0; i < currentFrame.length; i++) {
+      previousFrame.push(currentFrame[i]);
+    }
+  }
+}
+
+export function resetCapturedValueStack() {
+  while (index > -1) {
+    capturedValueStack[index] = null;
+    index--;
+  }
+}
+
+// Call this immediately after the value is thrown.
 export function createCapturedValue<T>(
   value: T,
   source: Fiber | null,
@@ -72,6 +145,10 @@ export function logError(capturedValue: CapturedValue<mixed>): void {
   }
 }
 
+// Create a CapturedError object from a CapturedValue before it is passed to
+// the error logger.
+// TODO: CapturedError is different from CapturedValue for legacy reasons, but I
+// don't think it's exposed to anyone outside FB, so we can probably change it.
 function createCapturedError(
   capturedValue: CapturedValue<mixed>,
 ): CapturedError {

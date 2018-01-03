@@ -1187,6 +1187,9 @@ function ChildReconciler(shouldTrackSideEffects) {
     }
 
     if (deleteExistingChildren) {
+      // Schedule all the existing children for deletion. This has the
+      // effect of re-mounting children even if their identity matches,
+      // as if all the keys changed.
       deleteRemainingChildren(returnFiber, currentFirstChild);
       currentFirstChild = null;
     }

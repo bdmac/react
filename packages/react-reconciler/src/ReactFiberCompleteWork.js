@@ -32,13 +32,7 @@ import {
   ReturnComponent,
   Fragment,
 } from 'shared/ReactTypeOfWork';
-import {
-  NoEffect,
-  Placement,
-  Ref,
-  Update,
-  Err,
-} from 'shared/ReactTypeOfSideEffect';
+import {Placement, Ref, Update} from 'shared/ReactTypeOfSideEffect';
 import invariant from 'fbjs/lib/invariant';
 
 import {reconcileChildFibers} from './ReactChildFiber';
@@ -46,13 +40,12 @@ import {
   popContextProvider,
   popTopLevelContextObject,
 } from './ReactFiberContext';
+import {pushFrame} from './ReactCapturedValue';
 
 export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   config: HostConfig<T, P, I, TI, HI, PI, C, CC, CX, PL>,
   hostContext: HostContext<C, CX>,
   hydrationContext: HydrationContext<C, CX>,
-  captureThrownValues: () => boolean,
-  captureErrors: () => boolean,
 ) {
   const {
     createInstance,
@@ -154,6 +147,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       false,
       renderExpirationTime,
     );
+    pushFrame();
     return workInProgress.child;
   }
 
@@ -408,29 +402,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       case FunctionalComponent:
         return null;
       case ClassComponent: {
-        const instance = workInProgress.stateNode;
-        if (
-          (workInProgress.effectTag & Err) === NoEffect &&
-          instance !== null &&
-          typeof instance.componentDidCatch === 'function'
-        ) {
-          const didCapture = captureErrors();
-          if (didCapture) {
-            workInProgress.effectTag |= Err;
-            return workInProgress;
-          }
-        }
-
         // We are leaving this subtree, so pop context if any.
         popContextProvider(workInProgress);
         return null;
       }
       case HostRoot: {
-        const didCapture = captureThrownValues();
-        if (didCapture) {
-          return workInProgress;
-        }
-
         popHostContainer(workInProgress);
         popTopLevelContextObject(workInProgress);
         const fiberRoot = (workInProgress.stateNode: FiberRoot);

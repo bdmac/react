@@ -909,6 +909,10 @@ describe('ReactErrorBoundaries', () => {
       'BrokenRender constructor',
       'BrokenRender componentWillMount',
       'BrokenRender render [!]',
+      // Continue rendering siblings
+      'Normal constructor',
+      'Normal componentWillMount',
+      'Normal render',
       // Capture the error
       'ErrorBoundary componentDidCatch',
       // Render the error message

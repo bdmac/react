@@ -1057,6 +1057,7 @@ describe('ReactIncrementalErrorHandling', () => {
   });
 
   it('error boundaries do not capture non-errors', () => {
+    spyOnDev(console, 'error');
     let ops = [];
 
     class ErrorBoundary extends React.Component {
@@ -1104,5 +1105,66 @@ describe('ReactIncrementalErrorHandling', () => {
     // Rethrow object at the root
     expect(caught).toBe(notAnError);
     expect(ops).toEqual(['ErrorBoundary (try)', 'Indirection', 'BadRender']);
+
+    if (__DEV__) {
+      expect(console.error.calls.count()).toBe(1);
+      expect(console.error.calls.argsFor(0)[0]).toContain(
+        'The above error occurred in the <BadRender> component:',
+      );
+    }
+  });
+
+  it('continues working on siblings of a component that throws', () => {
+    class ErrorBoundary extends React.Component {
+      state = {error: null};
+      componentDidCatch(error) {
+        ReactNoop.yield('componentDidCatch');
+        this.setState({error});
+      }
+      render() {
+        if (this.state.error) {
+          ReactNoop.yield('ErrorBoundary (catch)');
+          return <ErrorMessage error={this.state.error} />;
+        }
+        ReactNoop.yield('ErrorBoundary (try)');
+        return this.props.children;
+      }
+    }
+
+    function ErrorMessage(props) {
+      ReactNoop.yield('ErrorMessage');
+      return <span prop={`Caught an error: ${props.error.message}`} />;
+    }
+
+    function BadRenderSibling(props) {
+      ReactNoop.yield('BadRenderSibling');
+      return null;
+    }
+
+    function BadRender() {
+      ReactNoop.yield('throw');
+      throw new Error('oops!');
+    }
+
+    ReactNoop.render(
+      <ErrorBoundary>
+        <BadRender />
+        <BadRenderSibling />
+        <BadRenderSibling />
+      </ErrorBoundary>,
+    );
+
+    expect(ReactNoop.flush()).toEqual([
+      'ErrorBoundary (try)',
+      'throw',
+      // Continue rendering siblings after BadRender throws
+      'BadRenderSibling',
+      'BadRenderSibling',
+      // Recover from the error
+      'componentDidCatch',
+      'ErrorBoundary (catch)',
+      'ErrorMessage',
+    ]);
+    expect(ReactNoop.getChildren()).toEqual([span('Caught an error: oops!')]);
   });
 });

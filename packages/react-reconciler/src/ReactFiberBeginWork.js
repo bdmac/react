@@ -361,25 +361,36 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     pushHostContainer(workInProgress, root.containerInfo);
   }
 
-  function unmountFailedRoot(
-    current,
-    workInProgress,
-    capturedValues,
-    renderExpirationTime,
-  ) {
-    const capturedValue: CapturedValue<mixed> = (capturedValues[0]: any);
-    if (capturedValue.isError) {
-      logError(capturedValue);
-    } else {
-      capturedValue.isError = true;
-      const source = capturedValue.source;
-      if (source !== null) {
-        capturedValue.stack = getStackAddendumByWorkInProgressFiber(source);
+  function handleCapturedValuesAtRoot(capturedValues) {
+    let rootDidFail = false;
+    for (let i = 0; i < capturedValues.length; i++) {
+      const capturedValue = capturedValues[i];
+      if (capturedValue.isPromise) {
+        // TODO
+      } else {
+        // Anything other than a promise is treated as an error.
+        if (!capturedValue.isError) {
+          capturedValue.isError = true;
+          const source = capturedValue.source;
+          if (source !== null) {
+            capturedValue.stack = getStackAddendumByWorkInProgressFiber(source);
+          }
+        }
+        logError(capturedValue);
+        if (!rootDidFail) {
+          // Mark this error so that it's rethrown later. If there are
+          // multiple uncaught errors, subsequent ones will not be
+          // rethrown (but they were logged above).
+          const firstError = capturedValue.value;
+          markUncaughtError(firstError);
+          rootDidFail = true;
+        }
       }
     }
-    const error = capturedValue.value;
-    markUncaughtError(error);
+    return rootDidFail;
+  }
 
+  function unmountFailedRoot(current, workInProgress, renderExpirationTime) {
     const didError = true;
     reconcileChildrenAtExpirationTime(
       current,
@@ -399,12 +410,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   ) {
     pushHostRootContext(workInProgress);
     if (capturedValues !== null) {
-      return unmountFailedRoot(
-        current,
-        workInProgress,
-        capturedValues,
-        renderExpirationTime,
-      );
+      // The root captured some values.
+      const didError = handleCapturedValuesAtRoot(capturedValues);
+      if (didError) {
+        return unmountFailedRoot(current, workInProgress, renderExpirationTime);
+      }
     }
 
     let updateQueue = workInProgress.updateQueue;
@@ -418,17 +428,19 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         null,
         renderExpirationTime,
       );
+      memoizeState(workInProgress, state);
       updateQueue = workInProgress.updateQueue;
       if (updateQueue !== null && updateQueue.capturedValues !== null) {
         capturedValues = updateQueue.capturedValues;
         updateQueue.capturedValues = null;
-        memoizeState(workInProgress, state);
-        return unmountFailedRoot(
-          current,
-          workInProgress,
-          capturedValues,
-          renderExpirationTime,
-        );
+        const didError = handleCapturedValuesAtRoot(capturedValues);
+        if (didError) {
+          return unmountFailedRoot(
+            current,
+            workInProgress,
+            renderExpirationTime,
+          );
+        }
       }
       if (prevState === state) {
         // If the state is the same as before, that's a bailout because we had

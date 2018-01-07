@@ -60,7 +60,12 @@ import {
 } from './ReactFiberContext';
 
 import {NoWork, Never} from './ReactFiberExpirationTime';
-import {logError} from './ReactCapturedValue';
+import {
+  UnknownType,
+  PromiseType,
+  ErrorType,
+  logError,
+} from './ReactCapturedValue';
 
 let warnedAboutStatelessRefs;
 
@@ -75,6 +80,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   scheduleWork: (fiber: Fiber, expirationTime: ExpirationTime) => void,
   computeExpirationForFiber: (fiber: Fiber) => ExpirationTime,
   markUncaughtError: (error: mixed) => void,
+  markRootAsBlocked: (promise: Promise<mixed>) => void,
 ) {
   const {
     shouldSetTextContent,
@@ -227,7 +233,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       invariant(instance !== null, 'Expected class to have an instance.');
       // TODO: Pattern matching. Check that this is an error.
       const capturedValue: CapturedValue<mixed> = (capturedValues[0]: any);
-      if (capturedValue.isError) {
+      if (capturedValue.tag === ErrorType) {
         logError(capturedValue);
         instance.componentDidCatch(capturedValue.value);
       }
@@ -361,45 +367,55 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     pushHostContainer(workInProgress, root.containerInfo);
   }
 
-  function handleCapturedValuesAtRoot(capturedValues) {
+  function updateHostRootThatCaptured(
+    current,
+    workInProgress,
+    capturedValues,
+    renderExpirationTime,
+  ) {
     let rootDidFail = false;
     for (let i = 0; i < capturedValues.length; i++) {
       const capturedValue = capturedValues[i];
-      if (capturedValue.isPromise) {
-        // TODO
-      } else {
-        // Anything other than a promise is treated as an error.
-        if (!capturedValue.isError) {
-          capturedValue.isError = true;
+      switch (capturedValue.tag) {
+        case PromiseType:
+          const promise: Promise<mixed> = (capturedValue.value: any);
+          markRootAsBlocked(promise);
+          return null;
+        case UnknownType:
+          // Anything other than a promise is treated as an error.
+          capturedValue.tag = ErrorType;
           const source = capturedValue.source;
           if (source !== null) {
             capturedValue.stack = getStackAddendumByWorkInProgressFiber(source);
           }
-        }
-        logError(capturedValue);
-        if (!rootDidFail) {
-          // Mark this error so that it's rethrown later. If there are
-          // multiple uncaught errors, subsequent ones will not be
-          // rethrown (but they were logged above).
-          const firstError = capturedValue.value;
-          markUncaughtError(firstError);
-          rootDidFail = true;
-        }
+        // Intentionally fall through since this is now the same.
+        case ErrorType:
+          logError(capturedValue);
+          if (!rootDidFail) {
+            // Mark this error so that it's rethrown later. If there are
+            // multiple uncaught errors, subsequent ones will not be
+            // rethrown (but they were logged above).
+            const firstError = capturedValue.value;
+            markUncaughtError(firstError);
+            rootDidFail = true;
+          }
+          const didError = true;
+          reconcileChildrenAtExpirationTime(
+            current,
+            workInProgress,
+            null,
+            didError,
+            renderExpirationTime,
+          );
+          return null;
+        default:
+          invariant(
+            false,
+            'Unknown type of captured value. This error is likely caused by ' +
+              'a bug in React. Please file an issue.',
+          );
       }
     }
-    return rootDidFail;
-  }
-
-  function unmountFailedRoot(current, workInProgress, renderExpirationTime) {
-    const didError = true;
-    reconcileChildrenAtExpirationTime(
-      current,
-      workInProgress,
-      null,
-      didError,
-      renderExpirationTime,
-    );
-    return null;
   }
 
   function updateHostRoot(
@@ -411,10 +427,12 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     pushHostRootContext(workInProgress);
     if (capturedValues !== null) {
       // The root captured some values.
-      const didError = handleCapturedValuesAtRoot(capturedValues);
-      if (didError) {
-        return unmountFailedRoot(current, workInProgress, renderExpirationTime);
-      }
+      return updateHostRootThatCaptured(
+        current,
+        workInProgress,
+        capturedValues,
+        renderExpirationTime,
+      );
     }
 
     let updateQueue = workInProgress.updateQueue;
@@ -433,14 +451,12 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       if (updateQueue !== null && updateQueue.capturedValues !== null) {
         capturedValues = updateQueue.capturedValues;
         updateQueue.capturedValues = null;
-        const didError = handleCapturedValuesAtRoot(capturedValues);
-        if (didError) {
-          return unmountFailedRoot(
-            current,
-            workInProgress,
-            renderExpirationTime,
-          );
-        }
+        return updateHostRootThatCaptured(
+          current,
+          workInProgress,
+          capturedValues,
+          renderExpirationTime,
+        );
       }
       if (prevState === state) {
         // If the state is the same as before, that's a bailout because we had

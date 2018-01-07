@@ -30,8 +30,7 @@ export type FiberRoot = {
   current: Fiber,
   // Remaining expiration time on this root.
   remainingExpirationTime: ExpirationTime,
-  // Determines if this root can be committed.
-  isReadyForCommit: boolean,
+  blockedExpirationTime: ExpirationTime,
   // A finished work-in-progress HostRoot that's ready to be committed.
   // TODO: The reason this is separate from isReadyForCommit is because the
   // FiberRoot concept will likely be lifted out of the reconciler and into
@@ -63,6 +62,7 @@ export function createFiberRoot(
     containerInfo: containerInfo,
     pendingChildren: null,
     remainingExpirationTime: NoWork,
+    blockedExpirationTime: NoWork,
     isReadyForCommit: false,
     finishedWork: null,
     context: null,

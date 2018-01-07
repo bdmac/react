@@ -19,9 +19,15 @@ const getPrototypeOf =
   Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
 const objectToString = Object.prototype.toString;
 
+export type TypeOfCapturedValue = 0 | 1 | 2;
+
+export const UnknownType = 0;
+export const PromiseType = 1;
+export const ErrorType = 2;
+
 export type CapturedValue<T> = {
   value: T,
-  isError: boolean,
+  tag: TypeOfCapturedValue,
   source: Fiber | null,
   boundary: Fiber | null,
   stack: string | null,
@@ -45,15 +51,43 @@ export function createCapturedValue<T>(
   value: T,
   source: Fiber | null,
 ): CapturedValue<T> {
-  const valueIsError = isError(value);
+  let tag = UnknownType;
+  if (value instanceof Promise) {
+    tag = PromiseType;
+  } else if (value instanceof Error) {
+    tag = ErrorType;
+  } else if (getPrototypeOf !== null) {
+    // instanceof fails across realms. Check the prototype chain.
+    let proto = getPrototypeOf(value);
+    while (proto !== null) {
+      if (objectToString.call(proto) === '[object Error]') {
+        tag = ErrorType;
+        break;
+      }
+      proto = getPrototypeOf(value);
+    }
+  }
+
+  // If the tag is still unknown, fall back to duck typing.
+  if (value !== null && typeof value === 'object') {
+    if (typeof value.then === 'function') {
+      tag = PromiseType;
+    } else if (
+      typeof value.stack === 'string' &&
+      typeof value.message === 'string'
+    ) {
+      tag = ErrorType;
+    }
+  }
+
   return {
     value,
-    isError: valueIsError,
+    tag,
     source,
     boundary: null,
     // Don't compute the stack unless this is an error.
     stack:
-      source !== null && valueIsError
+      source !== null && tag === ErrorType
         ? getStackAddendumByWorkInProgressFiber(source)
         : null,
   };
@@ -105,30 +139,4 @@ function createCapturedError(
   }
 
   return capturedError;
-}
-
-function isError(value: mixed): boolean {
-  if (value instanceof Error) {
-    return true;
-  }
-
-  // instanceof fails across realms. Check the prototype chain.
-  if (getPrototypeOf !== null) {
-    let proto = getPrototypeOf(value);
-    while (proto !== null) {
-      if (objectToString.call(proto) === '[object Error]') {
-        return true;
-      }
-      proto = getPrototypeOf(value);
-    }
-    return false;
-  }
-
-  // If getPrototypeOf is not available, fall back to duck typing.
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof value.stack === 'string' &&
-    typeof value.message === 'string'
-  );
 }

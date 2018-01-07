@@ -81,7 +81,7 @@ import {
   insertUpdateIntoFiber,
 } from './ReactFiberUpdateQueue';
 import {resetContext} from './ReactFiberContext';
-import {createCapturedValue} from './ReactCapturedValue';
+import {ErrorType, createCapturedValue} from './ReactCapturedValue';
 
 const {
   invokeGuardedCallback,
@@ -159,6 +159,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     scheduleWork,
     computeExpirationForFiber,
     markUncaughtError,
+    markRootAsBlocked,
   );
   const {completeWork} = ReactFiberCompleteWork(
     config,
@@ -206,13 +207,16 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   // The next fiber with an effect that we're currently committing.
   let nextEffect: Fiber | null = null;
 
-  let hasUncaughtError: boolean = false;
+  let didThrowUncaughtError: boolean = false;
   let firstUncaughtError: mixed | null = null;
 
   let isCommitting: boolean = false;
 
   let thrownValues: Array<CapturedValue<mixed>> | null = null;
   let capturedValues: Array<CapturedValue<mixed>> | null = null;
+
+  let isReadyForCommit: boolean = false;
+  let blockers: Array<Promise<mixed>> | null = null;
 
   // Used for performance tracking.
   let interruptedBy: Fiber | null = null;
@@ -224,8 +228,16 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     resetContext();
     resetHostContainer();
 
+    nextRoot = null;
+    nextRenderExpirationTime = NoWork;
+    nextUnitOfWork = null;
+
     thrownValues = null;
     capturedValues = null;
+    isReadyForCommit = false;
+    blockers = null;
+    didThrowUncaughtError = false;
+    firstUncaughtError = null;
   }
 
   function commitAllHostEffects() {
@@ -333,7 +345,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         'related to the return field. This error is likely caused by a bug ' +
         'in React. Please file an issue.',
     );
-    root.isReadyForCommit = false;
 
     // Reset this to null before calling lifecycles
     ReactCurrentOwner.current = null;
@@ -500,7 +511,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     let errors = null;
     for (let i = 0; i < thrownValues.length; i++) {
       const value = thrownValues[i];
-      if (value.isError) {
+      if (value.tag === ErrorType) {
         thrownValues.splice(i, 1);
         if (errors === null) {
           errors = [value];
@@ -514,6 +525,14 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     }
     capturedValues = errors;
     return errors !== null;
+  }
+
+  function markRootAsBlocked(promise: Promise<mixed>) {
+    if (blockers === null) {
+      blockers = [promise];
+    } else {
+      blockers.push(promise);
+    }
   }
 
   function unwindUnitOfWork(workInProgress: Fiber): Fiber | null {
@@ -646,8 +665,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         continue;
       } else {
         // We've reached the root.
-        const root: FiberRoot = workInProgress.stateNode;
-        root.isReadyForCommit = true;
+        if (blockers === null) {
+          const root: FiberRoot = workInProgress.stateNode;
+          root.blockedExpirationTime = NoWork;
+          isReadyForCommit = true;
+        }
         return null;
       }
     }
@@ -727,10 +749,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     );
     isWorking = true;
 
-    // We're about to mutate the work-in-progress tree. If the root was pending
-    // commit, it no longer is: we'll need to complete it again.
-    root.isReadyForCommit = false;
-
     // Check if we're starting from a fresh stack, or if we're resuming from
     // previously yielded work.
     if (
@@ -778,7 +796,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
 
       if (nextUnitOfWork === null) {
         // Should have a nextUnitOfWork here.
-        hasUncaughtError = true;
+        didThrowUncaughtError = true;
         firstUncaughtError = thrownValue;
         break;
       }
@@ -799,19 +817,33 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         nextUnitOfWork = unwindUnitOfWork(sourceFiber.return);
       } else {
         // The root failed to render. This is a fatal error.
-        hasUncaughtError = true;
+        didThrowUncaughtError = true;
         firstUncaughtError = thrownValue;
         break;
       }
     } while (true);
 
-    if (hasUncaughtError) {
+    if (didThrowUncaughtError) {
       onUncaughtError(firstUncaughtError);
-      hasUncaughtError = false;
-      firstUncaughtError = null;
       // Set this to null to indicate there's no more work left.
       // That way the stack is reset next time we work on this root.
       nextUnitOfWork = null;
+    }
+
+    if (blockers !== null) {
+      let blockedExpirationTime = root.blockedExpirationTime;
+      if (
+        blockedExpirationTime === NoWork ||
+        blockedExpirationTime > nextRenderExpirationTime
+      ) {
+        blockedExpirationTime = root.blockedExpirationTime = nextRenderExpirationTime;
+      }
+      Promise.race(blockers).then(() => {
+        root.blockedExpirationTime = NoWork;
+        scheduleWork(root.current, blockedExpirationTime);
+      });
+      blockers = null;
+      onBlock();
     }
 
     // We're done performing work. Time to clean up.
@@ -819,7 +851,14 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     interruptedBy = null;
     isWorking = false;
 
-    return root.isReadyForCommit ? root.current.alternate : null;
+    const finishedWork = isReadyForCommit ? root.current.alternate : null;
+
+    if (nextUnitOfWork === null) {
+      // Clear the stack so it can be garbage collected
+      resetContextStack();
+    }
+
+    return finishedWork;
   }
 
   function popContexts(workInProgress: Fiber) {
@@ -841,7 +880,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   }
 
   function markUncaughtError(error: mixed): void {
-    hasUncaughtError = true;
+    didThrowUncaughtError = true;
     firstUncaughtError = error;
   }
 
@@ -955,27 +994,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     return scheduleWorkImpl(fiber, expirationTime, false);
   }
 
-  function checkRootNeedsClearing(
-    root: FiberRoot,
-    fiber: Fiber,
-    expirationTime: ExpirationTime,
-  ) {
-    if (
-      !isWorking &&
-      root === nextRoot &&
-      expirationTime < nextRenderExpirationTime
-    ) {
-      // Restart the root from the top.
-      if (nextUnitOfWork !== null) {
-        // This is an interruption. (Used for performance tracking.)
-        interruptedBy = fiber;
-      }
-      nextRoot = null;
-      nextUnitOfWork = null;
-      nextRenderExpirationTime = NoWork;
-    }
-  }
-
   function scheduleWorkImpl(
     fiber: Fiber,
     expirationTime: ExpirationTime,
@@ -1011,10 +1029,22 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       if (node.return === null) {
         if (node.tag === HostRoot) {
           const root: FiberRoot = (node.stateNode: any);
-
-          checkRootNeedsClearing(root, fiber, expirationTime);
-          requestWork(root, expirationTime);
-          checkRootNeedsClearing(root, fiber, expirationTime);
+          const blockedExpirationTime = root.blockedExpirationTime;
+          if (
+            blockedExpirationTime !== NoWork &&
+            blockedExpirationTime < expirationTime
+          ) {
+            // This root is blocked at the given expiration time.
+          } else {
+            if (
+              nextRenderExpirationTime !== NoWork &&
+              expirationTime < nextRenderExpirationTime
+            ) {
+              // This is an interruption. (Used for performance tracking.)
+              interruptedBy = fiber;
+            }
+            requestWork(root, expirationTime);
+          }
         } else {
           if (__DEV__) {
             if (!isErrorRecovery && fiber.tag === ClassComponent) {
@@ -1436,8 +1466,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     return true;
   }
 
-  // TODO: Not happy about this hook. Conceptually, renderRoot should return a
-  // tuple of (isReadyForCommit, didError, error)
   function onUncaughtError(error) {
     invariant(
       nextFlushedRoot !== null,
@@ -1451,6 +1479,16 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       hasUnhandledError = true;
       unhandledError = error;
     }
+  }
+
+  function onBlock() {
+    invariant(
+      nextFlushedRoot !== null,
+      'Should be working on a root. This error is likely caused by a bug in ' +
+        'React. Please file an issue.',
+    );
+    // This root was blocked. Unschedule it until there's another update.
+    nextFlushedRoot.remainingExpirationTime = NoWork;
   }
 
   // TODO: Batching should be implemented at the renderer level, not inside

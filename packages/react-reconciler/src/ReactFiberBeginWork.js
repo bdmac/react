@@ -84,6 +84,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   scheduleWork: (fiber: Fiber, expirationTime: ExpirationTime) => void,
   computeExpirationForFiber: (fiber: Fiber) => ExpirationTime,
   recalculateCurrentTime: () => ExpirationTime,
+  checkIfInRenderPhase: () => boolean,
 ) {
   const {shouldSetTextContent, shouldDeprioritizeSubtree} = config;
 
@@ -106,6 +107,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     computeExpirationForFiber,
     memoizeProps,
     memoizeState,
+    checkIfInRenderPhase,
   );
 
   // TODO: Remove this and use reconcileChildrenAtExpirationTime directly.

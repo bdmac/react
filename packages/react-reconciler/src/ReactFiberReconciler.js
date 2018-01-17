@@ -343,7 +343,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       callback,
       isReplace: false,
       isForced: false,
-      isCapture: false,
       capturedValue: null,
       next: null,
     };

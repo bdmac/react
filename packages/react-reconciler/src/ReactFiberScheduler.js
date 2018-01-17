@@ -176,6 +176,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     scheduleWork,
     computeExpirationForFiber,
     recalculateCurrentTime,
+    checkIfInRenderPhase,
   );
   const {completeWork} = ReactFiberCompleteWork(
     config,
@@ -716,7 +717,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                       callback: null,
                       isReplace: true,
                       isForced: false,
-                      isCapture: false,
                       capturedValue: null,
                       next: null,
                     };
@@ -728,7 +728,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                       callback: null,
                       isReplace: true,
                       isForced: false,
-                      isCapture: false,
                       capturedValue: null,
                       next: null,
                     };
@@ -790,7 +789,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                       callback: null,
                       isReplace: false,
                       isForced: false,
-                      isCapture: false,
                       capturedValue: null,
                       next: null,
                     };
@@ -1095,7 +1093,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       callback: null,
       isReplace: false,
       isForced: false,
-      isCapture: true,
       capturedValue,
       next: null,
     };
@@ -1194,6 +1191,10 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       }
     }
     return expirationTime;
+  }
+
+  function checkIfInRenderPhase() {
+    return isWorking && !isCommitting;
   }
 
   function scheduleWork(fiber: Fiber, expirationTime: ExpirationTime) {

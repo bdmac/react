@@ -34,6 +34,7 @@ import {
 } from './ReactFiberContext';
 import {
   insertUpdateIntoFiber,
+  insertRenderPhaseUpdateIntoFiber,
   processUpdateQueue,
 } from './ReactFiberUpdateQueue';
 import {hasContextChanged} from './ReactFiberContext';
@@ -93,6 +94,7 @@ export default function(
   computeExpirationForFiber: (fiber: Fiber) => ExpirationTime,
   memoizeProps: (workInProgress: Fiber, props: any) => void,
   memoizeState: (workInProgress: Fiber, state: any) => void,
+  checkIfInRenderPhase: () => boolean,
 ) {
   // Class component state updater
   const updater = {
@@ -110,11 +112,14 @@ export default function(
         callback,
         isReplace: false,
         isForced: false,
-        isCapture: false,
         capturedValue: null,
         next: null,
       };
-      insertUpdateIntoFiber(fiber, update);
+      if (checkIfInRenderPhase()) {
+        insertRenderPhaseUpdateIntoFiber(fiber, update);
+      } else {
+        insertUpdateIntoFiber(fiber, update);
+      }
       scheduleWork(fiber, expirationTime);
     },
     enqueueReplaceState(instance, state, callback) {
@@ -130,11 +135,14 @@ export default function(
         callback,
         isReplace: true,
         isForced: false,
-        isCapture: false,
         capturedValue: null,
         next: null,
       };
-      insertUpdateIntoFiber(fiber, update);
+      if (checkIfInRenderPhase()) {
+        insertRenderPhaseUpdateIntoFiber(fiber, update);
+      } else {
+        insertUpdateIntoFiber(fiber, update);
+      }
       scheduleWork(fiber, expirationTime);
     },
     enqueueForceUpdate(instance, callback) {
@@ -150,11 +158,14 @@ export default function(
         callback,
         isReplace: false,
         isForced: true,
-        isCapture: false,
         capturedValue: null,
         next: null,
       };
-      insertUpdateIntoFiber(fiber, update);
+      if (checkIfInRenderPhase()) {
+        insertRenderPhaseUpdateIntoFiber(fiber, update);
+      } else {
+        insertUpdateIntoFiber(fiber, update);
+      }
       scheduleWork(fiber, expirationTime);
     },
   };

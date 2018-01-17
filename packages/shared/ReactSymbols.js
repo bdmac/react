@@ -24,6 +24,12 @@ export const REACT_PORTAL_TYPE = hasSymbol
 export const REACT_FRAGMENT_TYPE = hasSymbol
   ? Symbol.for('react.fragment')
   : 0xeacb;
+export const REACT_ASYNC_BOUNDARY_TYPE = hasSymbol
+  ? Symbol.for('react.asyncBoundary')
+  : 0xeace;
+export const REACT_CAPTURED_VALUE = hasSymbol
+  ? Symbol.for('react.capturedValue')
+  : 0xeacf;
 
 const MAYBE_ITERATOR_SYMBOL = typeof Symbol === 'function' && Symbol.iterator;
 const FAUX_ITERATOR_SYMBOL = '@@iterator';

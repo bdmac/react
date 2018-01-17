@@ -31,6 +31,7 @@ import {
   CallHandlerPhase,
   ReturnComponent,
   Fragment,
+  AsyncBoundary,
 } from 'shared/ReactTypeOfWork';
 import {Placement, Ref, Update} from 'shared/ReactTypeOfSideEffect';
 import invariant from 'fbjs/lib/invariant';
@@ -574,6 +575,9 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         workInProgress.tag = CallComponent;
         return null;
       case ReturnComponent:
+        // Does nothing.
+        return null;
+      case AsyncBoundary:
         // Does nothing.
         return null;
       case Fragment:

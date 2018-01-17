@@ -13,7 +13,7 @@ import type {CapturedValue} from './ReactCapturedValue';
 
 import {debugRenderPhaseSideEffects} from 'shared/ReactFeatureFlags';
 import {Callback as CallbackEffect} from 'shared/ReactTypeOfSideEffect';
-import {ClassComponent, HostRoot} from 'shared/ReactTypeOfWork';
+import {ClassComponent, HostRoot, AsyncBoundary} from 'shared/ReactTypeOfWork';
 import invariant from 'fbjs/lib/invariant';
 import warning from 'fbjs/lib/warning';
 
@@ -174,14 +174,18 @@ export function insertUpdateIntoFiber<State>(
 }
 
 export function getUpdateExpirationTime(fiber: Fiber): ExpirationTime {
-  if (fiber.tag !== ClassComponent && fiber.tag !== HostRoot) {
-    return NoWork;
+  switch (fiber.tag) {
+    case HostRoot:
+    case ClassComponent:
+    case AsyncBoundary:
+      const updateQueue = fiber.updateQueue;
+      if (updateQueue === null) {
+        return NoWork;
+      }
+      return updateQueue.expirationTime;
+    default:
+      return NoWork;
   }
-  const updateQueue = fiber.updateQueue;
-  if (updateQueue === null) {
-    return NoWork;
-  }
-  return updateQueue.expirationTime;
 }
 
 function getStateFromUpdate(update, instance, prevState, props) {

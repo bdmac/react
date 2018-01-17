@@ -27,16 +27,17 @@ import {
   CallHandlerPhase,
   ReturnComponent,
   Fragment,
+  AsyncBoundary,
 } from 'shared/ReactTypeOfWork';
 import {
   PerformedWork,
   Placement,
   ContentReset,
   Ref,
+  Update,
 } from 'shared/ReactTypeOfSideEffect';
 import {ReactCurrentOwner} from 'shared/ReactGlobalSharedState';
 import {debugRenderPhaseSideEffects} from 'shared/ReactFeatureFlags';
-import {getStackAddendumByWorkInProgressFiber} from 'shared/ReactFiberComponentTreeHook';
 import invariant from 'fbjs/lib/invariant';
 import getComponentName from 'shared/getComponentName';
 import warning from 'fbjs/lib/warning';
@@ -61,7 +62,12 @@ import {
 
 import {NoWork, Never} from './ReactFiberExpirationTime';
 import {AsyncUpdates} from './ReactTypeOfInternalContext';
-import {logError} from './ReactCapturedValue';
+import {
+  ErrorType,
+  createBlocker,
+  logError,
+  createCombinedCapturedValue,
+} from './ReactCapturedValue';
 
 let warnedAboutStatelessRefs;
 let didWarnAboutBadClass;
@@ -77,7 +83,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   hydrationContext: HydrationContext<C, CX>,
   scheduleWork: (fiber: Fiber, expirationTime: ExpirationTime) => void,
   computeExpirationForFiber: (fiber: Fiber) => ExpirationTime,
-  markUncaughtError: (error: mixed) => void,
+  recalculateCurrentTime: () => ExpirationTime,
 ) {
   const {shouldSetTextContent, shouldDeprioritizeSubtree} = config;
 
@@ -226,7 +232,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       invariant(instance !== null, 'Expected class to have an instance.');
       // TODO: Pattern matching. Check that this is an error.
       const capturedValue: CapturedValue<mixed> = (capturedValues[0]: any);
-      if (capturedValue.isError) {
+      if (capturedValue.tag === ErrorType) {
         logError(capturedValue);
         instance.componentDidCatch(capturedValue.value);
       }
@@ -360,47 +366,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     pushHostContainer(workInProgress, root.containerInfo);
   }
 
-  function handleCapturedValuesAtRoot(capturedValues) {
-    let rootDidFail = false;
-    for (let i = 0; i < capturedValues.length; i++) {
-      const capturedValue = capturedValues[i];
-      if (capturedValue.isPromise) {
-        // TODO
-      } else {
-        // Anything other than a promise is treated as an error.
-        if (!capturedValue.isError) {
-          capturedValue.isError = true;
-          const source = capturedValue.source;
-          if (source !== null) {
-            capturedValue.stack = getStackAddendumByWorkInProgressFiber(source);
-          }
-        }
-        logError(capturedValue);
-        if (!rootDidFail) {
-          // Mark this error so that it's rethrown later. If there are
-          // multiple uncaught errors, subsequent ones will not be
-          // rethrown (but they were logged above).
-          const firstError = capturedValue.value;
-          markUncaughtError(firstError);
-          rootDidFail = true;
-        }
-      }
-    }
-    return rootDidFail;
-  }
-
-  function unmountFailedRoot(current, workInProgress, renderExpirationTime) {
-    const didError = true;
-    reconcileChildrenAtExpirationTime(
-      current,
-      workInProgress,
-      null,
-      didError,
-      renderExpirationTime,
-    );
-    return null;
-  }
-
   function updateHostRoot(
     current,
     workInProgress,
@@ -408,13 +373,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     renderExpirationTime,
   ) {
     pushHostRootContext(workInProgress);
-    if (capturedValues !== null) {
-      // The root captured some values.
-      const didError = handleCapturedValuesAtRoot(capturedValues);
-      if (didError) {
-        return unmountFailedRoot(current, workInProgress, renderExpirationTime);
-      }
-    }
 
     let updateQueue = workInProgress.updateQueue;
     if (updateQueue !== null) {
@@ -432,14 +390,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       if (updateQueue !== null && updateQueue.capturedValues !== null) {
         capturedValues = updateQueue.capturedValues;
         updateQueue.capturedValues = null;
-        const didError = handleCapturedValuesAtRoot(capturedValues);
-        if (didError) {
-          return unmountFailedRoot(
-            current,
-            workInProgress,
-            renderExpirationTime,
-          );
-        }
+        const combinedValue = createCombinedCapturedValue(
+          workInProgress,
+          capturedValues,
+        );
+        throw combinedValue;
       }
       if (prevState === state) {
         // If the state is the same as before, that's a bailout because we had
@@ -698,6 +653,73 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     return workInProgress.stateNode;
   }
 
+  function updateAsyncBoundary(
+    current,
+    workInProgress,
+    capturedValues,
+    renderExpirationTime,
+  ) {
+    const prevProps = workInProgress.memoizedProps;
+    const nextProps = workInProgress.pendingProps;
+
+    const prevState = workInProgress.memoizedState;
+    let nextState = workInProgress.memoizedState;
+    if (nextState === null) {
+      nextState = workInProgress.memoizedState = false;
+    }
+
+    const updateQueue = workInProgress.updateQueue;
+    if (updateQueue !== null) {
+      nextState = workInProgress.memoizedState = processUpdateQueue(
+        current,
+        workInProgress,
+        updateQueue,
+        null,
+        nextProps,
+        renderExpirationTime,
+      );
+    }
+
+    if (capturedValues !== null) {
+      // Combine the captured promises into a single promise.
+      let promises = [];
+      for (let i = 0; i < capturedValues.length; i++) {
+        promises.push(capturedValues[i].value);
+      }
+      const combinedPromise = Promise.race(promises);
+
+      if (nextState) {
+        // This boundary already captured a promise at this level. Bubble the
+        // promise to the next boundary by rethrowing.
+        throw combinedPromise;
+      }
+
+      // TODO: Sync and expired blockers
+
+      // Turn this promise into a blocker and throw it. The root will capture
+      // it and block the tree from committing.
+      if (current === null) {
+        throw combinedPromise;
+      } else {
+        const blocker = createBlocker(workInProgress, combinedPromise);
+        throw blocker;
+      }
+    }
+
+    if (hasContextChanged()) {
+      // Normally we can bail out on props equality but if context has changed
+      // we don't do the bailout and we have to reuse existing props instead.
+    } else if (prevProps === nextProps && prevState === nextState) {
+      return bailoutOnAlreadyFinishedWork(current, workInProgress);
+    }
+
+    const render = nextProps.children;
+    const nextChildren = render(nextState);
+    workInProgress.memoizedProps = nextProps;
+    reconcileChildren(current, workInProgress, nextChildren);
+    return workInProgress.child;
+  }
+
   function updatePortalComponent(
     current,
     workInProgress,
@@ -874,6 +896,13 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         // A return component is just a placeholder, we can just run through the
         // next one immediately.
         return null;
+      case AsyncBoundary:
+        return updateAsyncBoundary(
+          current,
+          workInProgress,
+          capturedValues,
+          renderExpirationTime,
+        );
       case HostPortal:
         return updatePortalComponent(
           current,

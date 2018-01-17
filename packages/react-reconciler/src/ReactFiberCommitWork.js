@@ -22,6 +22,7 @@ import {
   HostText,
   HostPortal,
   CallComponent,
+  AsyncBoundary,
 } from 'shared/ReactTypeOfWork';
 import ReactErrorUtils from 'shared/ReactErrorUtils';
 import {Placement, Update, ContentReset} from 'shared/ReactTypeOfSideEffect';
@@ -150,6 +151,9 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       }
       case HostPortal: {
         // We have no life-cycles associated with portals.
+        return;
+      }
+      case AsyncBoundary: {
         return;
       }
       default: {
@@ -633,6 +637,9 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         return;
       }
       case HostRoot: {
+        return;
+      }
+      case AsyncBoundary: {
         return;
       }
       default: {

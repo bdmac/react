@@ -7,7 +7,10 @@
 
 import assign from 'object-assign';
 import ReactVersion from 'shared/ReactVersion';
-import {REACT_FRAGMENT_TYPE} from 'shared/ReactSymbols';
+import {
+  REACT_FRAGMENT_TYPE,
+  REACT_ASYNC_BOUNDARY_TYPE,
+} from 'shared/ReactSymbols';
 
 import {Component, PureComponent, AsyncComponent} from './ReactBaseClasses';
 import {forEach, map, count, toArray, only} from './ReactChildren';
@@ -39,6 +42,7 @@ const React = {
   unstable_AsyncComponent: AsyncComponent,
 
   Fragment: REACT_FRAGMENT_TYPE,
+  AsyncBoundary: REACT_ASYNC_BOUNDARY_TYPE,
 
   createElement: __DEV__ ? createElementWithValidation : createElement,
   cloneElement: __DEV__ ? cloneElementWithValidation : cloneElement,

@@ -10,10 +10,12 @@
 import type {Fiber} from './ReactFiber';
 
 import invariant from 'fbjs/lib/invariant';
+import warning from 'fbjs/lib/warning';
 
 import {ClassComponent} from 'shared/ReactTypeOfWork';
 import getComponentName from 'shared/getComponentName';
 import {getStackAddendumByWorkInProgressFiber} from 'shared/ReactFiberComponentTreeHook';
+import {REACT_CAPTURED_VALUE} from 'shared/ReactSymbols';
 
 import {logCapturedError} from './ReactFiberErrorLogger';
 
@@ -21,13 +23,22 @@ const getPrototypeOf =
   Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
 const objectToString = Object.prototype.toString;
 
-export type CapturedValue<T> = {
+export type TypeOfCapturedValue = 0 | 1 | 2 | 3 | 4;
+
+export const UnknownType = 0;
+export const ErrorType = 1;
+export const PromiseType = 2;
+export const BlockerType = 3;
+export const CombinedType = 4;
+
+export type CapturedValue<T> = {|
+  $$typeof: Symbol | number,
   value: T,
-  isError: boolean,
+  tag: TypeOfCapturedValue,
   source: Fiber | null,
   boundary: Fiber | null,
   stack: string | null,
-};
+|};
 
 // Object that is passed to the error logger module.
 // TODO: CapturedError is different from CapturedValue for legacy reasons, but I
@@ -46,12 +57,22 @@ export type CapturedError = {
 let capturedValueStack: Array<Array<CapturedValue<mixed>> | null> = [];
 let index = -1;
 
-export function pushFrame() {
+let fiberStack;
+let didWarn;
+if (__DEV__) {
+  fiberStack = [];
+  didWarn = false;
+}
+
+export function pushFrame(returnFiber: Fiber | null) {
   index += 1;
+  if (__DEV__) {
+    fiberStack[index] = returnFiber;
+  }
   capturedValueStack[index] = null;
 }
 
-function getCurrentFrame() {
+function getCurrentFrame(returnFiber: Fiber) {
   const currentFrame = capturedValueStack[index];
   invariant(
     currentFrame !== undefined,
@@ -61,11 +82,23 @@ function getCurrentFrame() {
   return currentFrame;
 }
 
-export function frameHasCapturedValues() {
+export function frameHasCapturedValues(returnFiber: Fiber | null) {
+  if (__DEV__ && !didWarn) {
+    didWarn = true;
+    warning(fiberStack[index] === returnFiber, 'Mismatch');
+  }
   return getCurrentFrame() !== null;
 }
 
-export function addValueToFrame(capturedValue: CapturedValue<mixed>): void {
+export function addValueToFrame(
+  capturedValue: CapturedValue<mixed>,
+  returnFiber: Fiber,
+): void {
+  if (__DEV__ && !didWarn) {
+    didWarn = true;
+    warning(fiberStack[index] === returnFiber, 'Mismatch');
+  }
+
   const currentFrame = getCurrentFrame();
   if (currentFrame === null) {
     capturedValueStack[index] = [capturedValue];
@@ -74,19 +107,41 @@ export function addValueToFrame(capturedValue: CapturedValue<mixed>): void {
   }
 }
 
-export function captureValuesOnFrame(): Array<CapturedValue<mixed>> | null {
+export function captureValuesOnFrame(
+  returnFiber: Fiber,
+): Array<CapturedValue<mixed>> | null {
   const values = getCurrentFrame();
   capturedValueStack[index] = null;
+  if (__DEV__ && !didWarn) {
+    didWarn = true;
+    warning(fiberStack[index] === returnFiber, 'Mismatch');
+  }
   return values;
 }
 
-export function setValuesOnFrame(values: Array<CapturedValue<mixed>>) {
+export function setValuesOnFrame(
+  values: Array<CapturedValue<mixed>>,
+  returnFiber: Fiber,
+) {
   capturedValueStack[index] = values;
+  if (__DEV__ && !didWarn) {
+    didWarn = true;
+    warning(fiberStack[index] === returnFiber, 'Mismatch');
+  }
 }
 
-export function popFrameAndBubbleValues() {
+export function popFrameAndBubbleValues(returnFiber: Fiber) {
   const currentFrame = getCurrentFrame();
-  index -= 1;
+  invariant(
+    index > -1,
+    'Unexpected pop. This error is likely caused by a bug in React. Please ' +
+      'file an issue.',
+  );
+  if (__DEV__ && !didWarn) {
+    didWarn = true;
+    warning(fiberStack[index] === returnFiber, 'Mismatch');
+  }
+  index--;
   if (currentFrame === null) {
     // No values to bubble. Do nothing.
     return;
@@ -109,6 +164,9 @@ export function resetCapturedValueStack() {
   while (index > -1) {
     capturedValueStack[index] = null;
     index--;
+    if (__DEV__) {
+      fiberStack[index] = null;
+    }
   }
 }
 
@@ -117,17 +175,83 @@ export function createCapturedValue<T>(
   value: T,
   source: Fiber | null,
 ): CapturedValue<T> {
-  const valueIsError = isError(value);
+  if (
+    value !== null &&
+    value !== undefined &&
+    value.$$typeof === REACT_CAPTURED_VALUE
+  ) {
+    // Value is already a captured value
+    return (value: any);
+  }
+
+  let tag = UnknownType;
+  if (value instanceof Promise) {
+    tag = PromiseType;
+  } else if (value instanceof Error) {
+    tag = ErrorType;
+  } else if (getPrototypeOf !== null) {
+    // instanceof fails across realms. Check the prototype chain.
+    let proto = getPrototypeOf(value);
+    while (proto !== null) {
+      if (objectToString.call(proto) === '[object Error]') {
+        tag = ErrorType;
+        break;
+      }
+      proto = getPrototypeOf(value);
+    }
+  }
+
+  // If the tag is still unknown, fall back to duck typing.
+  if (value !== null && typeof value === 'object') {
+    if (typeof value.then === 'function') {
+      tag = PromiseType;
+    } else if (
+      typeof value.stack === 'string' &&
+      typeof value.message === 'string'
+    ) {
+      tag = ErrorType;
+    }
+  }
+
   return {
+    $$typeof: REACT_CAPTURED_VALUE,
     value,
-    isError: valueIsError,
+    tag,
     source,
     boundary: null,
     // Don't compute the stack unless this is an error.
     stack:
-      source !== null && valueIsError
+      source !== null && tag === ErrorType
         ? getStackAddendumByWorkInProgressFiber(source)
         : null,
+  };
+}
+
+export function createBlocker(
+  workInProgress: Fiber,
+  promise: Promise<mixed>,
+): CapturedValue<Promise<mixed>> {
+  return {
+    $$typeof: REACT_CAPTURED_VALUE,
+    value: promise,
+    tag: BlockerType,
+    source: workInProgress,
+    boundary: null,
+    stack: null,
+  };
+}
+
+export function createCombinedCapturedValue(
+  workInProgress: Fiber,
+  values: Array<mixed>,
+): CapturedValue<Array<mixed>> {
+  return {
+    $$typeof: REACT_CAPTURED_VALUE,
+    value: values,
+    tag: CombinedType,
+    source: workInProgress,
+    boundary: null,
+    stack: null,
   };
 }
 
@@ -177,30 +301,4 @@ function createCapturedError(
   }
 
   return capturedError;
-}
-
-function isError(value: mixed): boolean {
-  if (value instanceof Error) {
-    return true;
-  }
-
-  // instanceof fails across realms. Check the prototype chain.
-  if (getPrototypeOf !== null) {
-    let proto = getPrototypeOf(value);
-    while (proto !== null) {
-      if (objectToString.call(proto) === '[object Error]') {
-        return true;
-      }
-      proto = getPrototypeOf(value);
-    }
-    return false;
-  }
-
-  // If getPrototypeOf is not available, fall back to duck typing.
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof value.stack === 'string' &&
-    typeof value.message === 'string'
-  );
 }

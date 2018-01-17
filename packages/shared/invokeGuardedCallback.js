@@ -54,6 +54,7 @@ if (__DEV__) {
   // Check that the browser supports the APIs we need to implement our special
   // DEV version of invokeGuardedCallback
   if (
+    false &&
     typeof window !== 'undefined' &&
     typeof window.dispatchEvent === 'function' &&
     typeof document !== 'undefined' &&

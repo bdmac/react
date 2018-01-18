@@ -33,7 +33,7 @@ import {
   Fragment,
   AsyncBoundary,
 } from 'shared/ReactTypeOfWork';
-import {Placement, Ref, Update} from 'shared/ReactTypeOfSideEffect';
+import {Placement, Ref, Update, Err} from 'shared/ReactTypeOfSideEffect';
 import invariant from 'fbjs/lib/invariant';
 
 import {reconcileChildFibers} from './ReactChildFiber';
@@ -579,6 +579,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         return null;
       case AsyncBoundary:
         // Does nothing.
+        workInProgress.effectTag &= ~Err;
         return null;
       case Fragment:
         return null;

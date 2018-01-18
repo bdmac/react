@@ -34,7 +34,7 @@ import {
   Placement,
   ContentReset,
   Ref,
-  Update,
+  Err,
 } from 'shared/ReactTypeOfSideEffect';
 import {ReactCurrentOwner} from 'shared/ReactGlobalSharedState';
 import {debugRenderPhaseSideEffects} from 'shared/ReactFeatureFlags';
@@ -690,7 +690,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       }
       const combinedPromise = Promise.race(promises);
 
-      if (nextState) {
+      if (workInProgress.effectTag & Err) {
         // This boundary already captured a promise at this level. Bubble the
         // promise to the next boundary by rethrowing.
         throw combinedPromise;
@@ -714,9 +714,12 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     } else if (prevProps === nextProps && prevState === nextState) {
       return bailoutOnAlreadyFinishedWork(current, workInProgress);
     }
-
+    const isLoading = nextState;
+    if (isLoading) {
+      workInProgress.effectTag |= Err;
+    }
     const render = nextProps.children;
-    const nextChildren = render(nextState);
+    const nextChildren = render(isLoading);
     workInProgress.memoizedProps = nextProps;
     reconcileChildren(current, workInProgress, nextChildren);
     return workInProgress.child;

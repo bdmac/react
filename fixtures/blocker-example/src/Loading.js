@@ -8,11 +8,13 @@ class LoadingImpl extends React.Component {
   static defaultProps = {
     delay: 0,
   };
-  cache = new Set([true, false]);
-  pendingCache = new Map();
+  cache = null;
+  pendingCache = null;
   currentIsLoading = this.props.isLoading;
   componentDidMount() {
     this.currentIsLoading = this.props.isLoading;
+    this.cache = new Set([this.props.isLoading]);
+    this.pendingCache = new Map();
   }
   componentDidUpdate() {
     const isLoading = this.props.isLoading;
@@ -25,17 +27,23 @@ class LoadingImpl extends React.Component {
   read(isLoading) {
     const cache = this.cache;
     const pendingCache = this.pendingCache;
+    if (cache === null) {
+      return;
+    }
     if (cache.has(isLoading)) {
       return isLoading;
     }
     if (pendingCache.has(isLoading)) {
       const promise = pendingCache.get(isLoading);
+      console.log('throw!');
       throw promise;
     }
-    const promise = delay(this.props.delay)
-      .then(() => cache.add(isLoading))
-      .finally(() => pendingCache.delete(isLoading));
+    const promise = delay(this.props.delay).then(() => {
+      cache.add(isLoading);
+      pendingCache.delete(isLoading);
+    });
     pendingCache.set(isLoading, promise);
+    console.log('throw!');
     throw promise;
   }
   render() {

@@ -287,7 +287,6 @@ function* flushUnitsOfWork(n: number): Generator<Array<mixed>, void, void> {
   while (!didStop && scheduledCallback !== null) {
     let cb = scheduledCallback;
     scheduledCallback = null;
-    yieldedValues = null;
     unitsRemaining = n;
     cb({
       timeRemaining() {
@@ -417,7 +416,8 @@ const ReactNoop = {
   },
 
   flushUnitsOfWork(n: number): Array<mixed> {
-    let values = [];
+    let values = yieldedValues || [];
+    yieldedValues = null;
     for (const value of flushUnitsOfWork(n)) {
       values.push(...value);
     }
@@ -455,6 +455,10 @@ const ReactNoop = {
     } else {
       yieldedValues.push(value);
     }
+  },
+
+  clearYields() {
+    yieldedValues = null;
   },
 
   hasScheduledCallback() {

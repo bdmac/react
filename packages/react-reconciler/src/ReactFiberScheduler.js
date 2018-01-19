@@ -48,6 +48,14 @@ import ReactFiberHydrationContext from './ReactFiberHydrationContext';
 import ReactFiberInstrumentation from './ReactFiberInstrumentation';
 import ReactDebugCurrentFiber from './ReactDebugCurrentFiber';
 import {
+  addPendingWork,
+  addRenderPhasePendingWork,
+  flushPendingWork,
+  findNextExpirationTimeToWorkOn,
+  blockPendingWork,
+  unblockPendingWork,
+} from './ReactFiberPendingWork';
+import {
   recordEffect,
   recordScheduleUpdate,
   startRequestCallbackTimer,
@@ -482,11 +490,10 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       ReactFiberInstrumentation.debugTool.onCommitWork(finishedWork);
     }
 
-    if (root.didBlock) {
-      return NoWork;
-    }
     const remainingTime = root.current.expirationTime;
-    return remainingTime;
+    flushPendingWork(root, remainingTime);
+    const result = findNextExpirationTimeToWorkOn(root);
+    return result;
   }
 
   function resetExpirationTime(
@@ -732,25 +739,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                       next: null,
                     };
                     insertUpdateIntoFiber(boundary, revertUpdate);
-
-                    let node = boundary;
-                    while (node !== null) {
-                      if (
-                        node.expirationTime === NoWork ||
-                        node.expirationTime > slightlyHigherPriority
-                      ) {
-                        node.expirationTime = slightlyHigherPriority;
-                      }
-                      if (node.alternate !== null) {
-                        if (
-                          node.alternate.expirationTime === NoWork ||
-                          node.alternate.expirationTime > slightlyHigherPriority
-                        ) {
-                          node.alternate.expirationTime = slightlyHigherPriority;
-                        }
-                      }
-                      node = node.return;
-                    }
+                    scheduleWork(boundary, slightlyHigherPriority);
                     break;
                   }
                   case PromiseType: {
@@ -804,15 +793,18 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                 }
               }
               if (blockers !== null) {
-                root.didBlock = true;
+                blockPendingWork(root, nextRenderExpirationTime);
                 // When the promise resolves, retry using the time at which the
                 // promise was thrown, even if an earlier time blocks in the
                 // intervening time.
-                var retryTime = nextRenderExpirationTime;
+                var blockedTime = nextRenderExpirationTime;
                 // TODO: What if a promise is rejected?
                 Promise.race(blockers).then(() => {
-                  root.didBlock = false;
-                  requestWork(root, retryTime);
+                  unblockPendingWork(root, blockedTime);
+                  const retryTime = findNextExpirationTimeToWorkOn(root);
+                  if (retryTime !== NoWork) {
+                    requestRetry(root, retryTime);
+                  }
                 });
               }
               if (shouldRetry) {
@@ -1051,12 +1043,10 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         return finishedWork;
       } else {
         // The root did not complete.
-        const remainingTime = root.current.expirationTime;
-        if (remainingTime !== NoWork && remainingTime < renderCursor) {
-          onBlock(remainingTime);
-        } else {
-          onBlock(NoWork);
-        }
+        const firstUnblockedExpirationTime = findNextExpirationTimeToWorkOn(
+          root,
+        );
+        onBlock(firstUnblockedExpirationTime);
         return null;
       }
     } else {
@@ -1245,7 +1235,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
             interruptedBy = fiber;
             resetContext();
           }
-          root.didBlock = false;
+          if (isWorking && !isCommitting) {
+            addRenderPhasePendingWork(root, expirationTime);
+          } else {
+            addPendingWork(root, expirationTime);
+          }
           requestWork(root, expirationTime);
         } else {
           if (__DEV__) {
@@ -1310,7 +1304,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   let completedBatches: Array<Batch> | null = null;
 
   // Use these to prevent an infinite loop of nested updates
-  const NESTED_UPDATE_LIMIT = 10;
+  const NESTED_UPDATE_LIMIT = 1000;
   let nestedUpdateCount: number = 0;
 
   const timeHeuristicForUnitOfWork = 1;
@@ -1338,6 +1332,18 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
 
     callbackExpirationTime = expirationTime;
     callbackID = scheduleDeferredCallback(performAsyncWork, {timeout});
+  }
+
+  function requestRetry(root: FiberRoot, expirationTime: ExpirationTime) {
+    if (
+      root.remainingExpirationTime === NoWork ||
+      root.remainingExpirationTime < expirationTime
+    ) {
+      // For a retry, only update the remaining expiration time if it has a
+      // *lower priority* than the existing value. This is because, on a retry,
+      // we should attempt to coalesce as much as possible.
+      requestWork(root, expirationTime);
+    }
   }
 
   // requestWork is called by the scheduler whenever a root receives an update.
@@ -1472,7 +1478,8 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     const previousFlushedRoot = nextFlushedRoot;
     if (
       previousFlushedRoot !== null &&
-      previousFlushedRoot === highestPriorityRoot
+      previousFlushedRoot === highestPriorityRoot &&
+      highestPriorityWork === Sync
     ) {
       nestedUpdateCount++;
     } else {

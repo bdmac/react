@@ -9,6 +9,7 @@
 
 import type {Fiber} from './ReactFiber';
 import type {ExpirationTime} from './ReactFiberExpirationTime';
+import type {PendingWork} from './ReactFiberPendingWork';
 
 import {createHostRootFiber} from './ReactFiber';
 import {NoWork} from './ReactFiberExpirationTime';
@@ -28,9 +29,7 @@ export type FiberRoot = {
   pendingChildren: any,
   // The currently active root fiber. This is the mutable root of the tree.
   current: Fiber,
-  // Remaining expiration time on this root.
-  remainingExpirationTime: ExpirationTime,
-  didBlock: boolean,
+  firstPendingWork: PendingWork | null,
   pendingCommitExpirationTime: ExpirationTime,
   // A finished work-in-progress HostRoot that's ready to be committed.
   // TODO: The reason this is separate from isReadyForCommit is because the
@@ -42,6 +41,9 @@ export type FiberRoot = {
   pendingContext: Object | null,
   // Determines if we should attempt to hydrate on the initial mount
   +hydrate: boolean,
+  // Remaining expiration time on this root.
+  // TODO: List this into the renderer
+  remainingExpirationTime: ExpirationTime,
   // List of top-level batches. This list indicates whether a commit should be
   // deferred. Also contains completion callbacks.
   // TODO: Lift this into the renderer
@@ -62,13 +64,13 @@ export function createFiberRoot(
     current: uninitializedFiber,
     containerInfo: containerInfo,
     pendingChildren: null,
-    remainingExpirationTime: NoWork,
     pendingCommitExpirationTime: NoWork,
-    didBlock: false,
+    firstPendingWork: null,
     finishedWork: null,
     context: null,
     pendingContext: null,
     hydrate,
+    remainingExpirationTime: NoWork,
     firstBatch: null,
     nextScheduledRoot: null,
   };

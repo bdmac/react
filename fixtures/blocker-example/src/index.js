@@ -1,4 +1,4 @@
-import React, {Fragment} from 'react';
+import React, {Fragment, AsyncBoundary} from 'react';
 import ReactDOM from 'react-dom';
 
 import {createElement} from 'glamor/react';
@@ -8,6 +8,7 @@ import {css} from 'glamor';
 import 'glamor/reset';
 import Loading from './Loading';
 import {createNewCache} from './cache';
+import './index.css';
 
 css.global('*', {boxSizing: 'border-box'});
 
@@ -21,7 +22,10 @@ async function fetchSearchResults(query) {
 }
 
 async function fetchStory(storyID) {
-  const response = await fetch(`http://hn.algolia.com/api/v1/items/${storyID}`);
+  const [response] = await Promise.all([
+    fetch(`http://hn.algolia.com/api/v1/items/${storyID}`),
+    delay(3000),
+  ]);
   return await response.json();
 }
 
@@ -32,7 +36,7 @@ function delay(ms) {
 class Controlled extends React.Component {
   state = {value: this.props.value};
   onUpdate = value => {
-    this.props.onUpdate(value);
+    ReactDOM.unstable_deferredUpdates(() => this.props.onUpdate(value));
     ReactDOM.flushSync(() => this.setState({value}));
   };
   render() {
@@ -44,10 +48,9 @@ class Tear extends React.Component {
   state = {lowPriValue: this.props.value};
   componentWillReceiveProps() {
     const value = this.props.value;
-    requestIdleCallback(() => {
-      console.log('update!!!!!!!!!!!!!', value);
+    if (value !== this.state.lowPriValue) {
       this.setState({lowPriValue: value});
-    });
+    }
   }
   render() {
     return this.props.children(this.state.lowPriValue);
@@ -68,9 +71,6 @@ function SearchInput({query, onQueryUpdate}) {
 }
 
 function Result({result, onActiveItemUpdate, isActive, isLoading}) {
-  if (isLoading) {
-    console.log('///////////////////////////////////////////////');
-  }
   return (
     <button
       onClick={() => onActiveItemUpdate(result)}
@@ -182,39 +182,40 @@ class App extends React.Component {
   render() {
     const {activeItem, data, query} = this.state;
     return (
-      <Tear value={activeItem}>
-        {lowPriActiveItem =>
-          console.log(lowPriActiveItem) || (
+      <AsyncBoundary>
+        {() => (
+          <div
+            css={{
+              margin: '0 auto',
+              width: 500,
+              overflow: 'hidden',
+              height: '100vh',
+              display: 'grid',
+              gridTemplateRows: 'min-content auto',
+            }}>
+            <div>
+              HN Demo
+              <button onClick={this.invalidate}>Refresh</button>
+            </div>
             <div
               css={{
-                margin: '0 auto',
-                width: 500,
-                overflow: 'hidden',
-                height: '100vh',
+                width: 1000,
+                position: 'relative',
                 display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
                 gridTemplateRows: 'min-content auto',
-              }}>
-              <div>
-                HN Demo
-                <button onClick={this.invalidate}>Refresh</button>
-              </div>
-              <div
-                css={{
-                  width: 1000,
-                  position: 'relative',
-                  transition: 'left 200ms ease-in-out',
-                  left: lowPriActiveItem === null ? 0 : '-100%',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gridTemplateRows: 'min-content auto',
-                  gridTemplateAreas: `
+                gridTemplateAreas: `
                 'search  details'
                 'results details'
               `,
-                  overflow: 'hidden',
-                }}>
-                <Loading>
-                  {isDetailLoading => (
+                overflow: 'hidden',
+              }}
+              className={`innerContainer ${
+                activeItem !== null ? 'showDetails' : ''
+              }`}>
+              <Loading delay={1800}>
+                {isDetailLoading =>
+                  console.log(isDetailLoading) || (
                     <Fragment>
                       <Loading>
                         {() => (
@@ -224,6 +225,7 @@ class App extends React.Component {
                                 query={query}
                                 onQueryUpdate={this.onQueryUpdate}
                               />
+                              {isDetailLoading && 'Loading...'}
                             </div>
                             <div
                               css={{
@@ -246,22 +248,22 @@ class App extends React.Component {
                           gridArea: 'details',
                           overflow: 'auto',
                         }}>
-                        {lowPriActiveItem && (
+                        {activeItem && (
                           <Details
                             data={data}
                             clearActiveItem={this.clearActiveItem}
-                            result={lowPriActiveItem}
+                            result={activeItem}
                           />
                         )}
                       </div>
                     </Fragment>
-                  )}
-                </Loading>
-              </div>
+                  )
+                }
+              </Loading>
             </div>
-          )
-        }
-      </Tear>
+          </div>
+        )}
+      </AsyncBoundary>
     );
   }
 }

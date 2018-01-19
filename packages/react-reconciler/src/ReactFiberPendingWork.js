@@ -26,7 +26,7 @@ export type PendingWork = {
   expirationTime: ExpirationTime,
   isBlocked: boolean,
   needsRetry: boolean,
-  isRenderPhaseUpdate: boolean,
+  isInteractive: boolean,
   next: PendingWork | null,
 };
 
@@ -68,20 +68,19 @@ export function addPendingWork(
       expirationTime,
       isBlocked: false,
       needsRetry: false,
-      isRenderPhaseUpdate: false,
+      isInteractive: true,
       next: null,
     };
     insertPendingWorkAtPosition(root, work, insertAfter, insertBefore);
   }
 }
-export function addRenderPhasePendingWork(
+export function addNonInteractivePendingWork(
   root: FiberRoot,
   expirationTime: ExpirationTime,
 ): void {
-  // Render phase work is work that is scheduled during the render phase.
-  // They are treated differently because, while they could potentially unblock
-  // earlier pending work, we assume that they won't. They are also coalesced
-  // differently (see findNextExpirationTimeToWorkOn).
+  // Non-interactive work updates are treated differently because, while they
+  // could potentially unblock earlier pending work, we assume that they won't.
+  // They are also coalesced differently (see findNextExpirationTimeToWorkOn).
   let insertAfter = null;
   let insertBefore = root.firstPendingWork;
   while (insertBefore !== null) {
@@ -101,7 +100,7 @@ export function addRenderPhasePendingWork(
     expirationTime,
     isBlocked: false,
     needsRetry: false,
-    isRenderPhaseUpdate: true,
+    isInteractive: false,
     next: null,
   };
   insertPendingWorkAtPosition(root, work, insertAfter, insertBefore);
@@ -127,14 +126,14 @@ export function flushPendingWork(
   if (firstUnflushedWork === null) {
     if (remainingExpirationTime !== NoWork) {
       // There was an update during the render phase that wasn't flushed.
-      addRenderPhasePendingWork(root, remainingExpirationTime);
+      addNonInteractivePendingWork(root, remainingExpirationTime);
     }
   } else if (
     remainingExpirationTime !== NoWork &&
     firstUnflushedWork.expirationTime > remainingExpirationTime
   ) {
     // There was an update during the render phase that wasn't flushed.
-    addRenderPhasePendingWork(root, remainingExpirationTime);
+    addNonInteractivePendingWork(root, remainingExpirationTime);
   }
 }
 
@@ -176,16 +175,16 @@ export function unblockPendingWork(
 export function findNextExpirationTimeToWorkOn(
   root: FiberRoot,
 ): ExpirationTime {
-  // If there's an unblocked expiration time, return the first one.
+  // If there's an unblocked interactive expiration time, return the first one.
   // If everything is blocked return the last retry time that's either
-  //   a) a render phase update
+  //   a) a non-interactive update
   //   b) later or equal to the last blocked time
   let lastBlockedTime = NoWork;
-  let lastRenderPhaseRetryTime = NoWork;
+  let lastNonInteractiveTime = NoWork;
   let lastRetryTime = NoWork;
   let work = root.firstPendingWork;
   while (work !== null) {
-    if (!work.isBlocked) {
+    if (!work.isBlocked && (work.isInteractive || lastBlockedTime === NoWork)) {
       return work.expirationTime;
     }
     if (lastBlockedTime === NoWork || lastBlockedTime < work.expirationTime) {
@@ -196,11 +195,11 @@ export function findNextExpirationTimeToWorkOn(
         lastRetryTime = work.expirationTime;
       }
       if (
-        work.isRenderPhaseUpdate &&
-        (lastRenderPhaseRetryTime === NoWork ||
-          lastRenderPhaseRetryTime < work.expirationTime)
+        !work.isInteractive &&
+        (lastNonInteractiveTime === NoWork ||
+          lastNonInteractiveTime < work.expirationTime)
       ) {
-        lastRenderPhaseRetryTime = work.expirationTime;
+        lastNonInteractiveTime = work.expirationTime;
       }
     }
     work = work.next;
@@ -214,5 +213,5 @@ export function findNextExpirationTimeToWorkOn(
   if (lastRetryTime >= lastBlockedTime) {
     return lastRetryTime;
   }
-  return lastRenderPhaseRetryTime;
+  return lastNonInteractiveTime;
 }

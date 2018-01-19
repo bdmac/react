@@ -4,60 +4,63 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-class LoadingImpl extends React.Component {
+export class Debounce extends React.Component {
   static defaultProps = {
-    delay: 0,
+    ms: 0,
   };
   cache = null;
   pendingCache = null;
-  currentIsLoading = this.props.isLoading;
+  currentValue = this.props.value;
   componentDidMount() {
-    this.currentIsLoading = this.props.isLoading;
-    this.cache = new Set([this.props.isLoading]);
+    const value = this.props.value;
+    this.currentValue = value;
+    this.cache = new Set([value]);
     this.pendingCache = new Map();
   }
   componentDidUpdate() {
-    const isLoading = this.props.isLoading;
-    if (isLoading !== this.currentIsLoading) {
-      this.cache = new Set([isLoading]);
+    const value = this.props.value;
+    if (value !== this.currentValue) {
+      this.cache = new Set([value]);
       this.pendingCache = new Map();
     }
-    this.currentIsLoading = isLoading;
+    this.currentValue = value;
   }
-  read(isLoading) {
+  read(value) {
     const cache = this.cache;
     const pendingCache = this.pendingCache;
     if (cache === null) {
       return;
     }
-    if (cache.has(isLoading)) {
-      return isLoading;
+    if (cache.has(value)) {
+      return value;
     }
-    if (pendingCache.has(isLoading)) {
-      const promise = pendingCache.get(isLoading);
-      console.log('throw!');
+    if (pendingCache.has(value)) {
+      const promise = pendingCache.get(value);
       throw promise;
     }
-    const promise = delay(this.props.delay).then(() => {
-      cache.add(isLoading);
-      pendingCache.delete(isLoading);
+    const promise = delay(this.props.ms).then(() => {
+      cache.add(value);
+      pendingCache.delete(value);
     });
-    pendingCache.set(isLoading, promise);
-    console.log('throw!');
+    pendingCache.set(value, promise);
     throw promise;
   }
   render() {
-    if (this.props.delay > 0) {
-      this.read(this.props.isLoading);
+    if (this.props.ms > 0) {
+      this.read(this.props.value);
     }
-    return this.props.children(this.props.isLoading);
+    return this.props.children(this.props.value);
   }
 }
 
 export default function Loading(props) {
   return (
     <AsyncBoundary>
-      {isLoading => <LoadingImpl isLoading={isLoading} {...props} />}
+      {isLoading => (
+        <Debounce value={isLoading} ms={props.delay}>
+          {props.children}
+        </Debounce>
+      )}
     </AsyncBoundary>
   );
 }

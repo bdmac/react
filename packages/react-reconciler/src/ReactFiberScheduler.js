@@ -49,7 +49,7 @@ import ReactFiberInstrumentation from './ReactFiberInstrumentation';
 import ReactDebugCurrentFiber from './ReactDebugCurrentFiber';
 import {
   addPendingWork,
-  addRenderPhasePendingWork,
+  addNonInteractivePendingWork,
   flushPendingWork,
   findNextExpirationTimeToWorkOn,
   blockPendingWork,
@@ -88,6 +88,7 @@ import {AsyncUpdates} from './ReactTypeOfInternalContext';
 import {
   getUpdateExpirationTime,
   insertUpdateIntoFiber,
+  insertRenderPhaseUpdateIntoFiber,
 } from './ReactFiberUpdateQueue';
 import {resetContext} from './ReactFiberContext';
 import {
@@ -221,6 +222,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   let expirationContext: ExpirationTime = NoWork;
 
   let isWorking: boolean = false;
+  let updatesAreInteractive: boolean = false;
 
   // The next work in progress fiber that we're currently working on.
   let nextUnitOfWork: Fiber | null = null;
@@ -727,7 +729,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                       capturedValue: null,
                       next: null,
                     };
-                    insertUpdateIntoFiber(boundary, loadingUpdate);
+                    insertRenderPhaseUpdateIntoFiber(boundary, loadingUpdate);
 
                     const revertUpdate = {
                       expirationTime: nextRenderExpirationTime,
@@ -738,7 +740,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                       capturedValue: null,
                       next: null,
                     };
-                    insertUpdateIntoFiber(boundary, revertUpdate);
+                    insertRenderPhaseUpdateIntoFiber(boundary, revertUpdate);
                     scheduleWork(boundary, slightlyHigherPriority);
                     break;
                   }
@@ -1187,6 +1189,10 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     return isWorking && !isCommitting;
   }
 
+  function checkIfUpdatesAreInteractive() {
+    return !isWorking || updatesAreInteractive;
+  }
+
   function scheduleWork(fiber: Fiber, expirationTime: ExpirationTime) {
     return scheduleWorkImpl(fiber, expirationTime, false);
   }
@@ -1235,10 +1241,10 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
             interruptedBy = fiber;
             resetContext();
           }
-          if (isWorking && !isCommitting) {
-            addRenderPhasePendingWork(root, expirationTime);
-          } else {
+          if (checkIfUpdatesAreInteractive()) {
             addPendingWork(root, expirationTime);
+          } else {
+            addNonInteractivePendingWork(root, expirationTime);
           }
           requestWork(root, expirationTime);
         } else {
@@ -1263,11 +1269,18 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
 
   function deferredUpdates<A>(fn: () => A): A {
     const previousExpirationContext = expirationContext;
+    const previousUpdatesAreInteractive = updatesAreInteractive;
     expirationContext = computeAsyncExpiration();
+    // We assume any use of `deferredUpdates` is to split a high-priority
+    // interactive update into separate high and low values. Set this to true so
+    // that the low-pri value is treated as if it were the result of an
+    // interaction, even if we're in the render phase.
+    updatesAreInteractive = true;
     try {
       return fn();
     } finally {
       expirationContext = previousExpirationContext;
+      updatesAreInteractive = previousUpdatesAreInteractive;
     }
   }
 

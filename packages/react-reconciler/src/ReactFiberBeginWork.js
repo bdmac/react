@@ -682,6 +682,8 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       );
     }
 
+    const isLoading = nextState;
+
     if (capturedValues !== null) {
       // Combine the captured promises into a single promise.
       let promises = [];
@@ -690,7 +692,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       }
       const combinedPromise = Promise.race(promises);
 
-      if (workInProgress.effectTag & Err) {
+      if (isLoading) {
         // This boundary already captured a promise at this level. Bubble the
         // promise to the next boundary by rethrowing.
         throw combinedPromise;
@@ -714,10 +716,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     } else if (prevProps === nextProps && prevState === nextState) {
       return bailoutOnAlreadyFinishedWork(current, workInProgress);
     }
-    const isLoading = nextState;
-    if (isLoading) {
-      workInProgress.effectTag |= Err;
-    }
+
     const render = nextProps.children;
     const nextChildren = render(isLoading);
     workInProgress.memoizedProps = nextProps;

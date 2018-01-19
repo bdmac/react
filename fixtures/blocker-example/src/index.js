@@ -1,12 +1,13 @@
 import React, {Fragment, AsyncBoundary} from 'react';
 import ReactDOM from 'react-dom';
+// import ReactDOM from './ReactDOM-debug';
 
 import {createElement} from 'glamor/react';
 /* @jsx createElement */
 
 import {css} from 'glamor';
 import 'glamor/reset';
-import Loading from './Loading';
+import Loading, {Debounce} from './Loading';
 import {createNewCache} from './cache';
 import './index.css';
 
@@ -24,7 +25,7 @@ async function fetchSearchResults(query) {
 async function fetchStory(storyID) {
   const [response] = await Promise.all([
     fetch(`http://hn.algolia.com/api/v1/items/${storyID}`),
-    delay(3000),
+    delay(2000),
   ]);
   return await response.json();
 }
@@ -33,52 +34,49 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-class Controlled extends React.Component {
-  state = {value: this.props.value};
-  onUpdate = value => {
-    ReactDOM.unstable_deferredUpdates(() => this.props.onUpdate(value));
-    ReactDOM.flushSync(() => this.setState({value}));
-  };
-  render() {
-    return this.props.children(this.state.value, this.onUpdate);
-  }
+function Spinner() {
+  return <div className="spinner" />;
 }
 
-class Tear extends React.Component {
-  state = {lowPriValue: this.props.value};
-  componentWillReceiveProps() {
-    const value = this.props.value;
-    if (value !== this.state.lowPriValue) {
-      this.setState({lowPriValue: value});
+class AsyncProps extends React.Component {
+  state = {asyncProps: this.props.defaultProps};
+  componentWillMount() {
+    ReactDOM.unstable_deferredUpdates(() => {
+      this.setState((state, props) => ({asyncProps: props}));
+    });
+  }
+  componentWillUpdate(nextProps, nextState) {
+    if (nextProps !== nextState.asyncProps) {
+      ReactDOM.unstable_deferredUpdates(() => {
+        this.setState((state, props) => ({asyncProps: props}));
+      });
     }
   }
   render() {
-    return this.props.children(this.state.lowPriValue);
+    return this.props.children(this.state.asyncProps);
   }
 }
 
 function SearchInput({query, onQueryUpdate}) {
   return (
-    <Controlled value={query} onUpdate={onQueryUpdate}>
-      {(controlledQuery, onUpdate) => (
-        <input
-          onChange={event => onUpdate(event.target.value)}
-          value={controlledQuery}
-        />
-      )}
-    </Controlled>
+    <input
+      onChange={event =>
+        ReactDOM.flushSync(() => onQueryUpdate(event.target.value))
+      }
+      value={query}
+    />
   );
 }
 
 function Result({result, onActiveItemUpdate, isActive, isLoading}) {
   return (
     <button
-      onClick={() => onActiveItemUpdate(result)}
+      onClick={() => ReactDOM.flushSync(() => onActiveItemUpdate(result))}
       css={[
         {
           background: 'transparent',
           textAlign: 'start',
-          display: 'block',
+          display: 'flex',
           width: 'auto',
           outline: 'none',
           border: '1px solid rgba(0,0,0,0.2)',
@@ -86,19 +84,31 @@ function Result({result, onActiveItemUpdate, isActive, isLoading}) {
           ':not(:first-child)': {
             borderTop: 'none',
           },
-          ':hover': {background: 'lightblue'},
+          ':hover': {background: 'lightgray'},
           ':focus': {background: 'lightblue'},
         },
         isActive && {
           background: 'blue',
           ':focus': {background: 'blue'},
         },
-        isLoading && {
-          border: '3px solid orange',
-        },
       ]}>
-      <h2 css={{fontSize: 16}}>{result.title}</h2>
-      <p>Comments: {result.num_comments}</p>
+      <div
+        css={{
+          flexGrow: 1,
+          position: 'relative',
+        }}>
+        <h2 css={{fontSize: 16}}>{result.title}</h2>
+        <p>Comments: {result.num_comments}</p>
+      </div>
+      <div
+        css={{
+          alignSelf: 'center',
+          flexShrink: 1,
+          position: 'relative',
+          padding: '0 20px',
+        }}>
+        {isLoading && <Spinner />}
+      </div>
     </button>
   );
 }
@@ -108,7 +118,7 @@ function SearchResults({
   data,
   onActiveItemUpdate,
   activeItem,
-  activeItemIsLoading,
+  loadingItem,
 }) {
   if (query.trim() === '') {
     return 'Search for something';
@@ -122,7 +132,8 @@ function SearchResults({
       {results.hits.map(hit => {
         const isActive =
           activeItem !== null && activeItem.objectID === hit.objectID;
-        const isLoading = isActive && activeItemIsLoading;
+        const isLoading =
+          loadingItem !== null && hit.objectID === loadingItem.objectID;
         return (
           <Result
             key={hit.objectID}
@@ -158,12 +169,64 @@ function Story({data, id}) {
 function Details({result, clearActiveItem, data}) {
   return (
     <Fragment>
-      <button onClick={clearActiveItem}>Back</button>
+      <button onClick={() => ReactDOM.flushSync(clearActiveItem)}>Back</button>
       <a href={result.url}>
         <h1>{result.title}</h1>
       </a>
       <Story id={result.objectID} data={data} />
     </Fragment>
+  );
+}
+
+function MasterDetail({header, search, results, details, showDetails}) {
+  return (
+    <div
+      css={{
+        margin: '0 auto',
+        width: 500,
+        overflow: 'hidden',
+        height: '100vh',
+        display: 'grid',
+        gridTemplateRows: 'min-content auto',
+      }}>
+      <div>{header}</div>
+      <div
+        css={[
+          {
+            width: 1000,
+            position: 'relative',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gridTemplateRows: '36px auto',
+            gridTemplateAreas: `
+                        'search  details'
+                        'results details'
+                  `,
+            transition: 'transform 350ms ease-in-out',
+            transform: 'translateX(0%)',
+            overflow: 'hidden',
+          },
+          showDetails && {
+            transform: 'translateX(-50%)',
+          },
+        ]}>
+        <div css={{gridArea: 'search'}}>{search}</div>
+        <div
+          css={{
+            gridArea: 'results',
+            overflow: 'auto',
+          }}>
+          {results}
+        </div>
+        <div
+          css={{
+            gridArea: 'details',
+            overflow: 'auto',
+          }}>
+          {details}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -180,90 +243,65 @@ class App extends React.Component {
   onActiveItemUpdate = activeItem => this.setState({activeItem});
   clearActiveItem = () => this.setState({activeItem: null});
   render() {
-    const {activeItem, data, query} = this.state;
     return (
-      <AsyncBoundary>
-        {() => (
-          <div
-            css={{
-              margin: '0 auto',
-              width: 500,
-              overflow: 'hidden',
-              height: '100vh',
-              display: 'grid',
-              gridTemplateRows: 'min-content auto',
-            }}>
-            <div>
-              HN Demo
-              <button onClick={this.invalidate}>Refresh</button>
-            </div>
-            <div
-              css={{
-                width: 1000,
-                position: 'relative',
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gridTemplateRows: 'min-content auto',
-                gridTemplateAreas: `
-                'search  details'
-                'results details'
-              `,
-                overflow: 'hidden',
-              }}
-              className={`innerContainer ${
-                activeItem !== null ? 'showDetails' : ''
-              }`}>
-              <Loading delay={1800}>
-                {isDetailLoading =>
-                  console.log(isDetailLoading) || (
-                    <Fragment>
-                      <Loading>
+      <AsyncProps
+        activeItem={this.state.activeItem}
+        query={this.state.query}
+        data={this.state.data}
+        defaultProps={{activeItem: null, query: '', data: this.state.data}}>
+        {asyncProps => (
+          <AsyncBoundary>
+            {isDetailLoading => (
+              <Debounce value={isDetailLoading} ms={1000}>
+                {loadingItem => (
+                  <MasterDetail
+                    header={
+                      <Fragment>
+                        HN Demo
+                        <button
+                          onClick={() => ReactDOM.flushSync(this.invalidate)}>
+                          Refresh
+                        </button>
+                      </Fragment>
+                    }
+                    search={
+                      <SearchInput
+                        query={this.state.query}
+                        onQueryUpdate={this.onQueryUpdate}
+                      />
+                    }
+                    results={
+                      <AsyncBoundary>
                         {() => (
-                          <Fragment>
-                            <div css={{gridArea: 'search'}}>
-                              <SearchInput
-                                query={query}
-                                onQueryUpdate={this.onQueryUpdate}
-                              />
-                              {isDetailLoading && 'Loading...'}
-                            </div>
-                            <div
-                              css={{
-                                gridArea: 'results',
-                                overflow: 'auto',
-                              }}>
-                              <SearchResults
-                                query={query}
-                                data={data}
-                                activeItem={activeItem}
-                                activeItemIsLoading={isDetailLoading}
-                                onActiveItemUpdate={this.onActiveItemUpdate}
-                              />
-                            </div>
-                          </Fragment>
-                        )}
-                      </Loading>
-                      <div
-                        css={{
-                          gridArea: 'details',
-                          overflow: 'auto',
-                        }}>
-                        {activeItem && (
-                          <Details
-                            data={data}
-                            clearActiveItem={this.clearActiveItem}
-                            result={activeItem}
+                          <SearchResults
+                            query={asyncProps.query}
+                            data={asyncProps.data}
+                            activeItem={this.state.activeItem}
+                            loadingItem={
+                              isDetailLoading ? this.state.activeItem : null
+                            }
+                            onActiveItemUpdate={this.onActiveItemUpdate}
                           />
                         )}
-                      </div>
-                    </Fragment>
-                  )
-                }
-              </Loading>
-            </div>
-          </div>
+                      </AsyncBoundary>
+                    }
+                    details={
+                      asyncProps.activeItem && (
+                        <Details
+                          data={asyncProps.data}
+                          clearActiveItem={this.clearActiveItem}
+                          result={asyncProps.activeItem}
+                        />
+                      )
+                    }
+                    showDetails={asyncProps.activeItem !== null}
+                  />
+                )}
+              </Debounce>
+            )}
+          </AsyncBoundary>
         )}
-      </AsyncBoundary>
+      </AsyncProps>
     );
   }
 }

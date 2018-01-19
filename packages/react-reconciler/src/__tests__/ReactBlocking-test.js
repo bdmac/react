@@ -1,5 +1,3 @@
-import {flushPendingWork} from '../ReactFiberPendingWork';
-
 let React;
 let Fragment;
 let ReactNoop;
@@ -267,6 +265,53 @@ describe('ReactBlocking', () => {
     expect(ReactNoop.getChildren()).toEqual([span('Final result')]);
   });
 
+  it('nested boundaries do not capture if an outer boundary is blocked', async () => {
+    function App(props) {
+      return (
+        <AsyncBoundary>
+          {() => (
+            <AsyncBoundary>
+              {() =>
+                props.text ? (
+                  <AsyncText text={props.text} />
+                ) : (
+                  <Text text="Initial text" />
+                )
+              }
+            </AsyncBoundary>
+          )}
+        </AsyncBoundary>
+      );
+    }
+    ReactNoop.render(<App />);
+    expect(ReactNoop.flush()).toEqual(['Initial text']);
+    expect(ReactNoop.getChildren()).toEqual([span('Initial text')]);
+
+    ReactNoop.render(<App text="A" />);
+    expect(ReactNoop.flush()).toEqual(['Blocked! [A]', 'Initial text']);
+    expect(ReactNoop.getChildren()).toEqual([span('Initial text')]);
+
+    // Move B into a later expiration bucket
+    ReactNoop.expire(2000);
+    ReactNoop.render(<App text="B" />);
+    expect(ReactNoop.flush()).toEqual([
+      // B is blocked
+      'Blocked! [B]',
+      // It doesn't bother trying to render a loading state because it
+      // would be based on A, which we already know is blocked.
+    ]);
+    expect(ReactNoop.getChildren()).toEqual([span('Initial text')]);
+
+    // Unblock
+    await flushPromises();
+    expect(ReactNoop.flush()).toEqual([
+      'Promise resolved [A]',
+      'Promise resolved [B]',
+      'B',
+    ]);
+    expect(ReactNoop.getChildren()).toEqual([span('B')]);
+  });
+
   it('can block, unblock, then block again in a later update, with correct bubbling', async () => {
     function App(props) {
       return (
@@ -378,6 +423,42 @@ describe('ReactBlocking', () => {
       'Final result',
     ]);
     expect(ReactNoop.getChildren()).toEqual([div(span('Final result'))]);
+  });
+
+  it('does not bubble through a boundary unless that boundary already captured', () => {
+    function App(props) {
+      return (
+        <AsyncBoundary>
+          {isLoading => (
+            <Fragment>
+              <AsyncBoundary>
+                {spinnerIsLoading => (
+                  <Fragment>
+                    {spinnerIsLoading && <Text text="(fallback spinner)" />}
+                    {isLoading && <AsyncText text="(spinner)" />}
+                  </Fragment>
+                )}
+              </AsyncBoundary>
+              <Text text="Initial text" />
+              {props.step > 0 && <AsyncText text="More" />}
+            </Fragment>
+          )}
+        </AsyncBoundary>
+      );
+    }
+
+    ReactNoop.render(<App step={0} />);
+    expect(ReactNoop.flush()).toEqual(['Initial text']);
+    expect(ReactNoop.getChildren()).toEqual([span('Initial text')]);
+
+    ReactNoop.render(<App step={1} />);
+    expect(ReactNoop.flush()).toEqual([
+      'Initial text',
+      'Blocked! [More]',
+      'Blocked! [(spinner)]',
+      'Initial text',
+      '(fallback spinner)',
+    ]);
   });
 
   it('can unblock with a lower priority update', () => {
@@ -520,60 +601,65 @@ describe('ReactBlocking', () => {
       return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    class LoadingImpl extends React.Component {
+    class Debounce extends React.Component {
       static defaultProps = {
-        delay: 0,
+        ms: 0,
       };
       cache = null;
       pendingCache = null;
-      currentIsLoading = this.props.isLoading;
+      currentValue = this.props.value;
       componentDidMount() {
-        this.currentIsLoading = this.props.isLoading;
-        this.cache = new Set([this.props.isLoading]);
+        const value = this.props.value;
+        this.currentValue = value;
+        this.cache = new Set([value]);
         this.pendingCache = new Map();
       }
       componentDidUpdate() {
-        const isLoading = this.props.isLoading;
-        if (isLoading !== this.currentIsLoading) {
-          this.cache = new Set([isLoading]);
+        const value = this.props.value;
+        if (value !== this.currentValue) {
+          this.cache = new Set([value]);
           this.pendingCache = new Map();
         }
-        this.currentIsLoading = isLoading;
+        this.currentValue = value;
       }
-      read(isLoading) {
+      read(value) {
         const cache = this.cache;
         const pendingCache = this.pendingCache;
         if (cache === null) {
           return;
         }
-        if (cache.has(isLoading)) {
-          return isLoading;
+        if (cache.has(value)) {
+          return value;
         }
-        if (pendingCache.has(isLoading)) {
-          const promise = pendingCache.get(isLoading);
+        if (pendingCache.has(value)) {
+          const promise = pendingCache.get(value);
           ReactNoop.yield('Blocked! [Loading view delay]');
           throw promise;
         }
-        const promise = delay(this.props.delay).then(() => {
-          cache.add(isLoading);
-          pendingCache.delete(isLoading);
+        const promise = delay(this.props.ms).then(() => {
+          cache.add(value);
+          pendingCache.delete(value);
         });
-        pendingCache.set(isLoading, promise);
+        pendingCache.set(value, promise);
         ReactNoop.yield('Blocked! [Loading view delay]');
         throw promise;
       }
       render() {
-        if (this.props.delay > 0) {
-          this.read(this.props.isLoading);
+        if (this.props.ms > 0) {
+          this.read(this.props.value);
         }
-        return this.props.children(this.props.isLoading);
+        return this.props.children(this.props.value);
       }
     }
 
     function Loading(props) {
       return (
         <AsyncBoundary>
-          {isLoading => <LoadingImpl isLoading={isLoading} {...props} />}
+          {isLoading => (
+            <Debounce value={isLoading} ms={props.delay}>
+              {props.children}
+            </Debounce>
+          )}
         </AsyncBoundary>
       );
     }
@@ -632,7 +718,7 @@ describe('ReactBlocking', () => {
       expect(ReactNoop.getChildren()).toEqual([span('B')]);
     });
 
-    it('skips loading state entirely if original blocked update resolves first', async () => {
+    it('skips blocked loading state entirely if original blocked update resolves first', async () => {
       function App(props) {
         return (
           <Loading delay={100}>
@@ -669,6 +755,104 @@ describe('ReactBlocking', () => {
       expect(ReactNoop.getChildren()).toEqual([
         span('Initial text'),
         span('More'),
+      ]);
+    });
+  });
+
+  describe('splitting a high-pri update into high and low', () => {
+    class AsyncProps extends React.Component {
+      state = {asyncProps: this.props.defaultProps};
+      componentWillMount() {
+        ReactNoop.deferredUpdates(() => {
+          this.setState((state, props) => ({asyncProps: props}));
+        });
+      }
+      componentWillUpdate(nextProps, nextState) {
+        if (nextProps !== nextState.asyncProps) {
+          ReactNoop.deferredUpdates(() => {
+            this.setState((state, props) => ({asyncProps: props}));
+          });
+        }
+      }
+      render() {
+        return this.props.children(this.state.asyncProps);
+      }
+    }
+
+    it('coalesces async values when in a blocked state', async () => {
+      function App(props) {
+        return (
+          <AsyncProps text={props.text} defaultProps={{text: null}}>
+            {asyncProps => (
+              <Fragment>
+                <Text text={`High-pri: ${props.text}`} />
+                {asyncProps.text && (
+                  <AsyncText text={`Low-pri: ${asyncProps.text}`} ms={100} />
+                )}
+              </Fragment>
+            )}
+          </AsyncProps>
+        );
+      }
+
+      function renderAppSync(props) {
+        ReactNoop.flushSync(() => ReactNoop.render(<App {...props} />));
+      }
+
+      // Initial mount
+      renderAppSync({text: 'A'});
+      expect(ReactNoop.flush()).toEqual([
+        // First we render at high priority
+        'High-pri: A',
+        // Then we come back later to render a low priority
+        'High-pri: A',
+        // The low-pri view blocks
+        'Blocked! [Low-pri: A]',
+      ]);
+      expect(ReactNoop.getChildren()).toEqual([span('High-pri: A')]);
+
+      // Partially flush the promise for 'A', not by enough to resolve it.
+      await flushPromises(99);
+
+      // Advance React's virtual time so that the next update falls into a new
+      // expiration bucket
+      ReactNoop.expire(2000);
+      // Update to B. At this point, the low-pri view still hasn't updated
+      // to 'A'.
+      renderAppSync({text: 'B'});
+      expect(ReactNoop.flush()).toEqual([
+        // First we render at high priority
+        'High-pri: B',
+        // Then we come back later to render a low priority
+        'High-pri: B',
+        // The low-pri view blocks
+        'Blocked! [Low-pri: B]',
+      ]);
+      expect(ReactNoop.getChildren()).toEqual([span('High-pri: B')]);
+
+      // Flush the rest of the promise for 'A', without flushing the one
+      // for 'B'.
+      await flushPromises(1);
+      expect(ReactNoop.flush()).toEqual([
+        // A is unblocked
+        'Promise resolved [Low-pri: A]',
+        // But we don't try to render it, because there's a lower priority
+        // update that is also blocked.
+      ]);
+      expect(ReactNoop.getChildren()).toEqual([span('High-pri: B')]);
+
+      // Flush the remaining work.
+      await flushPromises();
+      expect(ReactNoop.flush()).toEqual([
+        // B is unblocked
+        'Promise resolved [Low-pri: B]',
+        // Now we can continue rendering the async view
+        'High-pri: B',
+        'Low-pri: B',
+      ]);
+      expect(ReactNoop.getChildren()).toEqual([
+        span('High-pri: B'),
+        span('Low-pri: B'),
       ]);
     });
   });

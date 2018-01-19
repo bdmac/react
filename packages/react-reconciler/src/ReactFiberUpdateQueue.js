@@ -149,7 +149,7 @@ export function insertUpdateIntoFiber<State>(
 
   // If there's only one queue, add the update to that queue and exit.
   if (queue2 === null) {
-    insertRenderPhaseUpdateIntoQueue(queue1, update, insertAfter1);
+    insertUpdateIntoQueue(queue1, update, insertAfter1);
     return;
   }
 
@@ -160,7 +160,7 @@ export function insertUpdateIntoFiber<State>(
 
   if (insertAfter1 === null || insertAfter1 !== insertAfter2) {
     // The insertion positions are different. Insert into both queues.
-    insertRenderPhaseUpdateIntoQueue(queue1, update, insertAfter1);
+    insertUpdateIntoQueue(queue1, update, insertAfter1);
     const update2 = {
       expirationTime,
       partialState: update.partialState,
@@ -170,12 +170,12 @@ export function insertUpdateIntoFiber<State>(
       capturedValue: update.capturedValue,
       next: null,
     };
-    insertRenderPhaseUpdateIntoQueue(queue2, update2, insertAfter2);
+    insertUpdateIntoQueue(queue2, update2, insertAfter2);
     return;
   }
 
   // The insertion positions are the same. Only insert into one of the queues.
-  insertRenderPhaseUpdateIntoQueue(queue1, update, insertAfter1);
+  insertUpdateIntoQueue(queue1, update, insertAfter1);
   // But update queue2's `first` and `last` pointers, if needed.
   if (insertAfter2 === null) {
     queue2.first = update;
@@ -192,7 +192,7 @@ export function insertUpdateIntoFiber<State>(
   }
 }
 
-function insertRenderPhaseUpdateIntoQueue<State>(
+function insertUpdateIntoQueue<State>(
   queue: UpdateQueue<State>,
   update: Update<State>,
   insertAfter: Update<State> | null,
@@ -261,7 +261,7 @@ export function insertRenderPhaseUpdateIntoFiber<State>(
 
   // If there's only one queue, add the update to that queue and exit.
   if (queue2 === null) {
-    insertRenderPhaseUpdateIntoQueue(queue1, update, insertAfter1);
+    insertUpdateIntoQueue(queue1, update, insertAfter1);
     return;
   }
 
@@ -275,7 +275,7 @@ export function insertRenderPhaseUpdateIntoFiber<State>(
 
   if (insertAfter1 === null || insertAfter1 !== insertAfter2) {
     // The insertion positions are different. Insert into both queues.
-    insertRenderPhaseUpdateIntoQueue(queue1, update, insertAfter1);
+    insertUpdateIntoQueue(queue1, update, insertAfter1);
     const update2 = {
       expirationTime,
       partialState: update.partialState,
@@ -285,12 +285,12 @@ export function insertRenderPhaseUpdateIntoFiber<State>(
       capturedValue: update.capturedValue,
       next: null,
     };
-    insertRenderPhaseUpdateIntoQueue(queue2, update2, insertAfter2);
+    insertUpdateIntoQueue(queue2, update2, insertAfter2);
     return;
   }
 
   // The insertion positions are the same. Only insert into one of the queues.
-  insertRenderPhaseUpdateIntoQueue(queue1, update, insertAfter1);
+  insertUpdateIntoQueue(queue1, update, insertAfter1);
   // But update queue2's `first` and `last` pointers, if needed.
   if (insertAfter2 === null) {
     queue2.first = update;

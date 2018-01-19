@@ -578,8 +578,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         // Does nothing.
         return null;
       case AsyncBoundary:
-        // Does nothing.
-        workInProgress.effectTag &= ~Err;
         return null;
       case Fragment:
         return null;

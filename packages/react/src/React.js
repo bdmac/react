@@ -10,6 +10,7 @@ import ReactVersion from 'shared/ReactVersion';
 import {
   REACT_FRAGMENT_TYPE,
   REACT_ASYNC_BOUNDARY_TYPE,
+  REACT_EXPIRATION_BOUNDARY_TYPE,
 } from 'shared/ReactSymbols';
 
 import {Component, PureComponent, AsyncComponent} from './ReactBaseClasses';
@@ -43,6 +44,7 @@ const React = {
 
   Fragment: REACT_FRAGMENT_TYPE,
   AsyncBoundary: REACT_ASYNC_BOUNDARY_TYPE,
+  ExpirationBoundary: REACT_EXPIRATION_BOUNDARY_TYPE,
 
   createElement: __DEV__ ? createElementWithValidation : createElement,
   cloneElement: __DEV__ ? cloneElementWithValidation : cloneElement,

@@ -1,4 +1,4 @@
-import React, {Fragment, AsyncBoundary} from 'react';
+import React, {Fragment, AsyncBoundary, ExpirationBoundary} from 'react';
 import ReactDOM from 'react-dom';
 // import ReactDOM from './ReactDOM-debug';
 
@@ -13,29 +13,66 @@ import './index.css';
 
 css.global('*', {boxSizing: 'border-box'});
 
-async function fetchSearchResults(query) {
+const TMDB_API_PATH = 'https://api.themoviedb.org/3';
+const TMDB_API_KEY = '762954999d09f9db6ffc6c0e6f37d509';
+
+async function fetchConfig() {
   const response = await fetch(
-    `https://hn.algolia.com/api/v1/search?tags=story&query=${
-      query
-    }&numericFilters=num_comments>0`
+    `${TMDB_API_PATH}/configuration?api_key=${TMDB_API_KEY}`
   );
   return await response.json();
 }
 
-async function fetchStory(storyID) {
-  const [response] = await Promise.all([
-    fetch(`http://hn.algolia.com/api/v1/items/${storyID}`),
-    delay(2000),
-  ]);
+async function searchMovies(query) {
+  const response = await fetch(
+    `${TMDB_API_PATH}/search/movie?api_key=${TMDB_API_KEY}&query=${
+      query
+    }&include_adult=false`
+  );
   return await response.json();
 }
+
+function loadImage(src) {
+  const image = new Image();
+  return new Promise(resolve => {
+    image.onload = () => resolve();
+    image.src = src;
+  });
+}
+
+const fetchMovie = addArtificialDelay(3000, async id => {
+  const response = await fetch(
+    `${TMDB_API_PATH}/movie/${id}?api_key=${TMDB_API_KEY}`
+  );
+  return await response.json();
+});
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function addArtificialDelay(ms, asyncFn) {
+  return async (...args) => {
+    const [result] = await Promise.all([asyncFn(...args), delay(ms)]);
+    return result;
+  };
+}
+
 function Spinner() {
   return <div className="spinner" />;
+}
+
+function Fallback({children, placeholder}) {
+  return (
+    <ExpirationBoundary>
+      {didExpire => (
+        <Fragment>
+          {didExpire ? placeholder : null}
+          <div hidden={didExpire}>{children}</div>
+        </Fragment>
+      )}
+    </ExpirationBoundary>
+  );
 }
 
 class AsyncProps extends React.Component {
@@ -68,10 +105,18 @@ function SearchInput({query, onQueryUpdate}) {
   );
 }
 
-function Result({result, onActiveItemUpdate, isActive, isLoading}) {
+function Result({data, result, onActiveResultUpdate, isActive, isLoading}) {
+  const config = data.read('config', fetchConfig);
+  const size = config.images.poster_sizes[0];
+  const baseURL =
+    document.location.protocol === 'https:'
+      ? config.images.secure_base_url
+      : config.images.base_url;
+  const width = parseInt(size.replace(/\w/, ''), 10);
+  const height = width / 27 * 40;
   return (
     <button
-      onClick={() => ReactDOM.flushSync(() => onActiveItemUpdate(result))}
+      onClick={() => ReactDOM.flushSync(() => onActiveResultUpdate(result))}
       css={[
         {
           background: 'transparent',
@@ -81,6 +126,7 @@ function Result({result, onActiveItemUpdate, isActive, isLoading}) {
           outline: 'none',
           border: '1px solid rgba(0,0,0,0.2)',
           cursor: 'pointer',
+          padding: 0,
           ':not(:first-child)': {
             borderTop: 'none',
           },
@@ -94,11 +140,19 @@ function Result({result, onActiveItemUpdate, isActive, isLoading}) {
       ]}>
       <div
         css={{
+          display: 'flex',
           flexGrow: 1,
           position: 'relative',
         }}>
+        <div css={{width, height}}>
+          {result.poster_path !== null && (
+            <img
+              src={`${baseURL}/${size}/${result.poster_path}`}
+              css={{padding: 0, margin: 0}}
+            />
+          )}
+        </div>
         <h2 css={{fontSize: 16}}>{result.title}</h2>
-        <p>Comments: {result.num_comments}</p>
       </div>
       <div
         css={{
@@ -116,31 +170,27 @@ function Result({result, onActiveItemUpdate, isActive, isLoading}) {
 function SearchResults({
   query,
   data,
-  onActiveItemUpdate,
-  activeItem,
-  loadingItem,
+  onActiveResultUpdate,
+  activeResult,
+  loadingResult,
 }) {
   if (query.trim() === '') {
     return 'Search for something';
   }
-  const results = data.read(`searchResults:${query}`, () =>
-    fetchSearchResults(query)
+  const {results} = data.read(`searchMovies:${query}`, () =>
+    searchMovies(query)
   );
-
   return (
     <div css={{display: 'flex', flexDirection: 'column'}}>
-      {results.hits.map(hit => {
-        const isActive =
-          activeItem !== null && activeItem.objectID === hit.objectID;
-        const isLoading =
-          loadingItem !== null && hit.objectID === loadingItem.objectID;
+      {results.map(result => {
         return (
           <Result
-            key={hit.objectID}
-            result={hit}
-            onActiveItemUpdate={onActiveItemUpdate}
-            isActive={isActive}
-            isLoading={isLoading}
+            key={result.id}
+            data={data}
+            result={result}
+            onActiveResultUpdate={onActiveResultUpdate}
+            isActive={activeResult !== null && activeResult.id === result.id}
+            isLoading={loadingResult !== null && loadingResult.id === result.id}
           />
         );
       })}
@@ -148,32 +198,45 @@ function SearchResults({
   );
 }
 
-function Comment({comment}) {
+function FullPoster({data, movie}) {
+  const path = movie.poster_path;
+  if (path === null) {
+    return null;
+  }
+  const config = data.read('config', fetchConfig);
+  const size = config.images.poster_sizes[2];
+  const baseURL =
+    document.location.protocol === 'https:'
+      ? config.images.secure_base_url
+      : config.images.base_url;
+  const width = size.replace(/\w/, '');
+  const src = `${baseURL}/${size}/${movie.poster_path}`;
+  data.read(`loadImage:${src}`, () => loadImage(src));
+  return <img width={width} src={src} />;
+}
+
+function MovieInfo({movie, data, clearActiveResult}) {
+  const fullResult = data.read(`fetchMovie:${movie.id}`, () =>
+    fetchMovie(movie.id)
+  );
   return (
-    <div>
-      <div dangerouslySetInnerHTML={{__html: comment.text}} />
-      {comment.children.map(comment => (
-        <Comment key={comment.id} comment={comment} />
-      ))}
-    </div>
+    <Fragment>
+      <Fallback placeholder={<Spinner />}>
+        <FullPoster data={data} movie={movie} />
+      </Fallback>
+      <h2>{movie.title}</h2>
+      <div>{movie.overview}</div>
+    </Fragment>
   );
 }
 
-function Story({data, id}) {
-  const story = data.read(`story:${id}`, () => fetchStory(id));
-  return story.children.map(comment => (
-    <Comment key={comment.id} comment={comment} />
-  ));
-}
-
-function Details({result, clearActiveItem, data}) {
+function Details({result, clearActiveResult, data}) {
   return (
     <Fragment>
-      <button onClick={() => ReactDOM.flushSync(clearActiveItem)}>Back</button>
-      <a href={result.url}>
-        <h1>{result.title}</h1>
-      </a>
-      <Story id={result.objectID} data={data} />
+      <button onClick={() => clearActiveResult()}>Back</button>
+      <Fallback placeholder={<Spinner />}>
+        <MovieInfo movie={result} data={data} />
+      </Fallback>
     </Fragment>
   );
 }
@@ -234,30 +297,30 @@ class App extends React.Component {
   state = {
     data: createNewCache(this.invalidate),
     query: '',
-    activeItem: null,
+    activeResult: null,
   };
   invalidate = () => {
     this.setState({data: createNewCache(this.invalidate)});
   };
   onQueryUpdate = query => this.setState({query});
-  onActiveItemUpdate = activeItem => this.setState({activeItem});
-  clearActiveItem = () => this.setState({activeItem: null});
+  onActiveResultUpdate = activeResult => this.setState({activeResult});
+  clearActiveResult = () => this.setState({activeResult: null});
   render() {
     return (
       <AsyncProps
-        activeItem={this.state.activeItem}
+        activeResult={this.state.activeResult}
         query={this.state.query}
         data={this.state.data}
-        defaultProps={{activeItem: null, query: '', data: this.state.data}}>
+        defaultProps={{activeResult: null, query: '', data: this.state.data}}>
         {asyncProps => (
           <AsyncBoundary>
             {isDetailLoading => (
-              <Debounce value={isDetailLoading} ms={1000}>
+              <Debounce value={isDetailLoading} ms={1500}>
                 {loadingItem => (
                   <MasterDetail
                     header={
                       <Fragment>
-                        HN Demo
+                        Blocker Demo
                         <button
                           onClick={() => ReactDOM.flushSync(this.invalidate)}>
                           Refresh
@@ -276,25 +339,25 @@ class App extends React.Component {
                           <SearchResults
                             query={asyncProps.query}
                             data={asyncProps.data}
-                            activeItem={this.state.activeItem}
-                            loadingItem={
-                              isDetailLoading ? this.state.activeItem : null
+                            activeResult={this.state.activeResult}
+                            loadingResult={
+                              isDetailLoading ? this.state.activeResult : null
                             }
-                            onActiveItemUpdate={this.onActiveItemUpdate}
+                            onActiveResultUpdate={this.onActiveResultUpdate}
                           />
                         )}
                       </AsyncBoundary>
                     }
                     details={
-                      asyncProps.activeItem && (
+                      asyncProps.activeResult && (
                         <Details
                           data={asyncProps.data}
-                          clearActiveItem={this.clearActiveItem}
-                          result={asyncProps.activeItem}
+                          clearActiveResult={this.clearActiveResult}
+                          result={asyncProps.activeResult}
                         />
                       )
                     }
-                    showDetails={asyncProps.activeItem !== null}
+                    showDetails={asyncProps.activeResult !== null}
                   />
                 )}
               </Debounce>

@@ -28,13 +28,14 @@ import {
   ReturnComponent,
   Fragment,
   AsyncBoundary,
+  ExpirationBoundary,
 } from 'shared/ReactTypeOfWork';
 import {
   PerformedWork,
   Placement,
   ContentReset,
   Ref,
-  Err,
+  Update,
 } from 'shared/ReactTypeOfSideEffect';
 import {ReactCurrentOwner} from 'shared/ReactGlobalSharedState';
 import {debugRenderPhaseSideEffects} from 'shared/ReactFeatureFlags';
@@ -81,8 +82,15 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   config: HostConfig<T, P, I, TI, HI, PI, C, CC, CX, PL>,
   hostContext: HostContext<C, CX>,
   hydrationContext: HydrationContext<C, CX>,
-  scheduleWork: (fiber: Fiber, expirationTime: ExpirationTime) => void,
-  computeExpirationForFiber: (fiber: Fiber) => ExpirationTime,
+  scheduleWork: (
+    fiber: Fiber,
+    startTime: ExpirationTime,
+    expirationTime: ExpirationTime,
+  ) => void,
+  computeExpirationForFiber: (
+    startTime: ExpirationTime,
+    fiber: Fiber,
+  ) => ExpirationTime,
   recalculateCurrentTime: () => ExpirationTime,
   checkIfInRenderPhase: () => boolean,
 ) {
@@ -107,6 +115,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     computeExpirationForFiber,
     memoizeProps,
     memoizeState,
+    recalculateCurrentTime,
     checkIfInRenderPhase,
   );
 
@@ -375,7 +384,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     renderExpirationTime,
   ) {
     pushHostRootContext(workInProgress);
-
     let updateQueue = workInProgress.updateQueue;
     if (updateQueue !== null) {
       const prevState = workInProgress.memoizedState;
@@ -724,6 +732,38 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     return workInProgress.child;
   }
 
+  function updateExpirationBoundary(
+    current,
+    workInProgress,
+    capturedValues,
+    renderExpirationTime,
+  ) {
+    const nextProps = workInProgress.pendingProps;
+
+    let didExpire;
+    if (capturedValues !== null) {
+      didExpire = true;
+      // Combine the captured promises into a single promise.
+      let promises = [];
+      for (let i = 0; i < capturedValues.length; i++) {
+        promises.push(capturedValues[i].value);
+      }
+      const combinedPromise = Promise.race(promises);
+      // TODO: In the commit phase, retry once the promise resolves
+      workInProgress.stateNode = combinedPromise;
+      workInProgress.effectTag |= Update;
+    } else {
+      workInProgress.stateNode = null;
+      didExpire = false;
+    }
+
+    const render = nextProps.children;
+    const nextChildren = render(didExpire);
+    workInProgress.memoizedProps = nextProps;
+    reconcileChildren(current, workInProgress, nextChildren);
+    return workInProgress.child;
+  }
+
   function updatePortalComponent(
     current,
     workInProgress,
@@ -902,6 +942,13 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         return null;
       case AsyncBoundary:
         return updateAsyncBoundary(
+          current,
+          workInProgress,
+          capturedValues,
+          renderExpirationTime,
+        );
+      case ExpirationBoundary:
+        return updateExpirationBoundary(
           current,
           workInProgress,
           capturedValues,

@@ -34,6 +34,7 @@ import {
   HostPortal,
   ClassComponent,
   AsyncBoundary,
+  ExpirationBoundary,
 } from 'shared/ReactTypeOfWork';
 import {enableUserTimingAPI} from 'shared/ReactFeatureFlags';
 import getComponentName from 'shared/getComponentName';
@@ -51,6 +52,7 @@ import {
   addPendingWork,
   addNonInteractivePendingWork,
   flushPendingWork,
+  findStartTime,
   findNextExpirationTimeToWorkOn,
   blockPendingWork,
   unblockPendingWork,
@@ -93,6 +95,7 @@ import {
 import {resetContext} from './ReactFiberContext';
 import {
   createCapturedValue,
+  createTimeout,
   pushFrame,
   popFrameAndBubbleValues,
   captureValuesOnFrame,
@@ -106,6 +109,7 @@ import {
   PromiseType,
   CombinedType,
   BlockerType,
+  TimeoutType,
 } from './ReactCapturedValue';
 import {getStackAddendumByWorkInProgressFiber} from 'shared/ReactFiberComponentTreeHook';
 
@@ -200,7 +204,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     commitLifeCycles,
     commitAttachRef,
     commitDetachRef,
-  } = ReactFiberCommitWork(config, onCommitPhaseError);
+  } = ReactFiberCommitWork(
+    config,
+    onCommitPhaseError,
+    retryOnPromiseResolution,
+  );
   const {
     now,
     scheduleDeferredCallback,
@@ -210,8 +218,9 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   } = config;
 
   // Represents the current time in ms.
-  const startTime = now();
+  const originalStartTimeMs = now();
   let mostRecentCurrentTime: ExpirationTime = msToExpirationTime(0);
+  let mostRecentCurrentTimeMs: number = originalStartTimeMs;
 
   // Used to ensure computeUniqueAsyncExpiration is monotonically increases.
   let lastUniqueAsyncExpiration: number = 0;
@@ -229,7 +238,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   let nextRoot: FiberRoot | null = null;
   // The time at which we're currently rendering work.
   let nextRenderExpirationTime: ExpirationTime = NoWork;
+  let nextStartTime: ExpirationTime = NoWork;
+  let nextStartTimeMs: number = -1;
+  let nextElapsedTimeMs: number = -1;
   let nextRenderCursor: ExpirationTime = NoWork;
+  let nextRenderIsExpired: boolean = false;
 
   // The next fiber with an effect that we're currently committing.
   let nextEffect: Fiber | null = null;
@@ -256,7 +269,11 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     resetCapturedValueStack();
     nextRoot = null;
     nextRenderExpirationTime = NoWork;
+    nextStartTime = NoWork;
+    nextStartTimeMs = -1;
+    nextElapsedTimeMs = -1;
     nextRenderCursor = NoWork;
+    nextRenderIsExpired = false;
     nextUnitOfWork = null;
 
     capturedValues = null;
@@ -331,14 +348,24 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     }
   }
 
-  function commitAllLifeCycles() {
+  function commitAllLifeCycles(
+    finishedRoot: FiberRoot,
+    currentTime: ExpirationTime,
+    committedExpirationTime: ExpirationTime,
+  ) {
     while (nextEffect !== null) {
       const effectTag = nextEffect.effectTag;
 
       if (effectTag & (Update | Callback)) {
         recordEffect();
         const current = nextEffect.alternate;
-        commitLifeCycles(current, nextEffect);
+        commitLifeCycles(
+          finishedRoot,
+          current,
+          nextEffect,
+          currentTime,
+          committedExpirationTime,
+        );
       }
 
       if (effectTag & Ref) {
@@ -377,6 +404,8 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         'bug in React. Please file an issue.',
     );
     root.pendingCommitExpirationTime = NoWork;
+
+    const currentTime = recalculateCurrentTime();
 
     // Reset this to null before calling lifecycles
     ReactCurrentOwner.current = null;
@@ -455,14 +484,21 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       let didError = false;
       let error;
       if (__DEV__) {
-        invokeGuardedCallback(null, commitAllLifeCycles, null);
+        invokeGuardedCallback(
+          null,
+          commitAllLifeCycles,
+          null,
+          root,
+          currentTime,
+          committedExpirationTime,
+        );
         if (hasCaughtError()) {
           didError = true;
           error = clearCaughtError();
         }
       } else {
         try {
-          commitAllLifeCycles();
+          commitAllLifeCycles(root, currentTime, committedExpirationTime);
         } catch (e) {
           didError = true;
           error = e;
@@ -493,9 +529,8 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     }
 
     const remainingTime = root.current.expirationTime;
-    flushPendingWork(root, remainingTime);
-    const result = findNextExpirationTimeToWorkOn(root);
-    return result;
+    flushPendingWork(root, currentTime, remainingTime);
+    return findNextExpirationTimeToWorkOn(root);
   }
 
   function resetExpirationTime(
@@ -508,9 +543,20 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       return;
     }
 
+    let newExpirationTime =
+      workInProgress.tag === ExpirationBoundary &&
+      workInProgress.effectTag & Update
+        ? workInProgress.expirationTime
+        : NoWork;
+
     // Check for pending updates.
-    let u = getUpdateExpirationTime(workInProgress);
-    let newExpirationTime = u;
+    const updateExpirationTime = getUpdateExpirationTime(workInProgress);
+    if (
+      updateExpirationTime !== NoWork &&
+      (newExpirationTime === NoWork || newExpirationTime > updateExpirationTime)
+    ) {
+      newExpirationTime = updateExpirationTime;
+    }
 
     // TODO: Calls need to visit stateNode
 
@@ -684,15 +730,32 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
             break;
           }
           case AsyncBoundary: {
-            const didCapture = captureMatchingValues(
-              value => value.tag === PromiseType,
-            );
-            if (didCapture) {
-              if (nextRenderExpirationTime === Sync) {
-                throw new Error('TODO');
+            if (!nextRenderIsExpired) {
+              const didCapture = captureMatchingValues(
+                value => value.tag === PromiseType,
+              );
+              if (didCapture) {
+                // Render the boundary again
+                next = workInProgress;
               }
-              // Render the boundary again
-              next = workInProgress;
+            }
+            break;
+          }
+          case ExpirationBoundary: {
+            const timeout = workInProgress.pendingProps.timeout;
+            const didTimeout =
+              nextRenderIsExpired ||
+              (typeof timeout === 'number' && nextElapsedTimeMs >= timeout);
+            if (didTimeout && !(workInProgress.effectTag & Update)) {
+              const didCapture = captureMatchingValues(
+                value => value.tag === PromiseType || value.tag === BlockerType,
+              );
+              if (didCapture) {
+                next = workInProgress;
+              }
+            } else if (typeof timeout === 'number') {
+              const timeoutValue = createTimeout(workInProgress, timeout);
+              addValueToFrame(timeoutValue, workInProgress);
             }
             break;
           }
@@ -702,57 +765,80 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
             if (allValues !== null) {
               let blockers = null;
               let shouldRetry = false;
+              let smallestTimeout = -1;
               const slightlyHigherPriority = nextRenderExpirationTime - 1;
               for (let i = 0; i < allValues.length; i++) {
                 const capturedValue = allValues[i];
                 switch (capturedValue.tag) {
+                  case TimeoutType: {
+                    const timeout: number = (capturedValue.value: any);
+                    if (smallestTimeout === -1 || smallestTimeout > timeout) {
+                      smallestTimeout = timeout;
+                    }
+                    break;
+                  }
+                  // Intentionally fall through to error type
                   case BlockerType: {
-                    const promise: Promise<mixed> = (capturedValue.value: any);
-                    if (blockers === null) {
-                      blockers = [promise];
-                    } else {
-                      blockers.push(promise);
-                    }
-                    const boundary = capturedValue.source;
-                    invariant(
-                      boundary !== null,
-                      'Expected blocker effect to have a source fiber. This ' +
-                        'error is likely caused by a bug in React. Please ' +
-                        'file an issue.',
-                    );
-                    const loadingUpdate = {
-                      expirationTime: slightlyHigherPriority,
-                      partialState: true,
-                      callback: null,
-                      isReplace: true,
-                      isForced: false,
-                      capturedValue: null,
-                      next: null,
-                    };
-                    insertRenderPhaseUpdateIntoFiber(boundary, loadingUpdate);
+                    if (!nextRenderIsExpired) {
+                      const promise: Promise<
+                        mixed,
+                      > = (capturedValue.value: any);
+                      if (blockers === null) {
+                        blockers = [promise];
+                      } else {
+                        blockers.push(promise);
+                      }
+                      const boundary = capturedValue.source;
+                      invariant(
+                        boundary !== null,
+                        'Expected blocker effect to have a source fiber. This ' +
+                          'error is likely caused by a bug in React. Please ' +
+                          'file an issue.',
+                      );
+                      const loadingUpdate = {
+                        expirationTime: slightlyHigherPriority,
+                        partialState: true,
+                        callback: null,
+                        isReplace: true,
+                        isForced: false,
+                        capturedValue: null,
+                        next: null,
+                      };
+                      insertRenderPhaseUpdateIntoFiber(boundary, loadingUpdate);
 
-                    const revertUpdate = {
-                      expirationTime: nextRenderExpirationTime,
-                      partialState: false,
-                      callback: null,
-                      isReplace: true,
-                      isForced: false,
-                      capturedValue: null,
-                      next: null,
-                    };
-                    insertRenderPhaseUpdateIntoFiber(boundary, revertUpdate);
-                    scheduleWork(boundary, slightlyHigherPriority);
-                    break;
-                  }
-                  case PromiseType: {
-                    const promise: Promise<mixed> = (capturedValue.value: any);
-                    if (blockers === null) {
-                      blockers = [promise];
-                    } else {
-                      blockers.push(promise);
+                      const revertUpdate = {
+                        expirationTime: nextRenderExpirationTime,
+                        partialState: false,
+                        callback: null,
+                        isReplace: true,
+                        isForced: false,
+                        capturedValue: null,
+                        next: null,
+                      };
+                      insertRenderPhaseUpdateIntoFiber(boundary, revertUpdate);
+                      scheduleWork(
+                        boundary,
+                        nextStartTime,
+                        slightlyHigherPriority,
+                      );
+                      break;
                     }
-                    break;
                   }
+                  // Intentionally fall through to error type
+                  case PromiseType: {
+                    if (!nextRenderIsExpired) {
+                      const promise: Promise<
+                        mixed,
+                      > = (capturedValue.value: any);
+                      if (blockers === null) {
+                        blockers = [promise];
+                      } else {
+                        blockers.push(promise);
+                      }
+                      break;
+                    }
+                  }
+                  // Intentionally fall through to error type
                   case UnknownType:
                     // Anything other than a promise is treated as an error.
                     capturedValue.tag = ErrorType;
@@ -794,20 +880,30 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                     );
                 }
               }
+              if (smallestTimeout > 0) {
+                var ms = smallestTimeout;
+                const timeoutPromise = new Promise(resolve => {
+                  setTimeout(() => {
+                    resolve();
+                  }, ms);
+                });
+                if (blockers === null) {
+                  blockers = [timeoutPromise];
+                } else {
+                  blockers.push(timeoutPromise);
+                }
+              }
               if (blockers !== null) {
                 blockPendingWork(root, nextRenderExpirationTime);
                 // When the promise resolves, retry using the time at which the
                 // promise was thrown, even if an earlier time blocks in the
                 // intervening time.
                 var blockedTime = nextRenderExpirationTime;
+                var blockedRoot = nextRoot;
                 // TODO: What if a promise is rejected?
-                Promise.race(blockers).then(() => {
-                  unblockPendingWork(root, blockedTime);
-                  const retryTime = findNextExpirationTimeToWorkOn(root);
-                  if (retryTime !== NoWork) {
-                    requestRetry(root, retryTime);
-                  }
-                });
+                Promise.race(blockers).then(() =>
+                  retryOnPromiseResolution(blockedRoot, blockedTime),
+                );
               }
               if (shouldRetry) {
                 next = createWorkInProgress(
@@ -815,7 +911,6 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
                   null,
                   workInProgress.expirationTime,
                 );
-                nextRenderExpirationTime = workInProgress.expirationTime;
               }
             }
             break;
@@ -950,6 +1045,15 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       nextRoot = root;
       nextRenderCursor = renderCursor;
       nextRenderExpirationTime = renderCursor;
+      nextStartTime = findStartTime(nextRoot, nextRenderExpirationTime);
+      recalculateCurrentTime();
+      if (nextStartTime === NoWork) {
+        nextStartTime = mostRecentCurrentTime;
+        nextStartTimeMs = mostRecentCurrentTimeMs;
+      } else {
+        nextStartTimeMs = expirationTimeToMs(nextStartTime);
+      }
+      nextElapsedTimeMs = mostRecentCurrentTimeMs - nextStartTimeMs;
       nextUnitOfWork = createWorkInProgress(
         nextRoot.current,
         null,
@@ -957,6 +1061,8 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       );
       root.pendingCommitExpirationTime = NoWork;
     }
+
+    nextRenderIsExpired = !async;
 
     startWorkLoopTimer(nextUnitOfWork);
 
@@ -1045,9 +1151,23 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         return finishedWork;
       } else {
         // The root did not complete.
+        invariant(
+          !nextRenderIsExpired,
+          'Expired work should have completed. This error is likely caused ' +
+            'by a bug in React. Please file an issue.',
+        );
         const firstUnblockedExpirationTime = findNextExpirationTimeToWorkOn(
           root,
         );
+        if (firstUnblockedExpirationTime === NoWork) {
+          const earliestExpirationTime = root.current.alternate.expirationTime;
+          const expirationMs = expirationTimeToMs(earliestExpirationTime);
+          const currentMs = expirationTimeToMs(recalculateCurrentTime());
+          // Round up to the nearest 10ms to ensure this fires after the
+          // true expiration.
+          const ms = ((expirationMs - currentMs) | 0) + 10;
+          requestTimeout(root, ms);
+        }
         onBlock(firstUnblockedExpirationTime);
         return null;
       }
@@ -1076,7 +1196,13 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     stopWorkTimer(workInProgress);
   }
 
-  function scheduleCapture(sourceFiber, boundaryFiber, value, expirationTime) {
+  function scheduleCapture(
+    sourceFiber,
+    boundaryFiber,
+    value,
+    startTime,
+    expirationTime,
+  ) {
     const capturedValue = createCapturedValue(value, sourceFiber);
     capturedValue.boundary = boundaryFiber;
     const update = {
@@ -1089,12 +1215,13 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       next: null,
     };
     insertUpdateIntoFiber(boundaryFiber, update);
-    scheduleWork(boundaryFiber, expirationTime);
+    scheduleWork(boundaryFiber, startTime, expirationTime);
   }
 
   function dispatch(
     sourceFiber: Fiber,
     value: mixed,
+    startTime: ExpirationTime,
     expirationTime: ExpirationTime,
   ) {
     invariant(
@@ -1110,13 +1237,19 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         case ClassComponent:
           const instance = fiber.stateNode;
           if (typeof instance.componentDidCatch === 'function') {
-            scheduleCapture(sourceFiber, fiber, value, expirationTime);
+            scheduleCapture(
+              sourceFiber,
+              fiber,
+              value,
+              startTime,
+              expirationTime,
+            );
             return;
           }
           break;
         // TODO: Handle async boundaries
         case HostRoot:
-          scheduleCapture(sourceFiber, fiber, value, expirationTime);
+          scheduleCapture(sourceFiber, fiber, value, startTime, expirationTime);
           return;
       }
       fiber = fiber.return;
@@ -1125,19 +1258,25 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     if (sourceFiber.tag === HostRoot) {
       // Error was thrown at the root. There is no parent, so the root
       // itself should capture it.
-      scheduleCapture(sourceFiber, sourceFiber, value, expirationTime);
+      scheduleCapture(
+        sourceFiber,
+        sourceFiber,
+        value,
+        startTime,
+        expirationTime,
+      );
     }
   }
 
   function onCommitPhaseError(fiber: Fiber, error: mixed) {
-    return dispatch(fiber, error, Sync);
+    const startTime = recalculateCurrentTime();
+    return dispatch(fiber, error, startTime, Sync);
   }
 
-  function computeAsyncExpiration() {
+  function computeAsyncExpiration(currentTime: ExpirationTime) {
     // Given the current clock time, returns an expiration time. We use rounding
     // to batch like updates together.
     // Should complete within ~1000ms. 1200ms max.
-    const currentTime = recalculateCurrentTime();
     const expirationMs = 5000;
     const bucketSizeMs = 250;
     return computeExpirationBucket(currentTime, expirationMs, bucketSizeMs);
@@ -1145,7 +1284,8 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
 
   // Creates a unique async expiration time.
   function computeUniqueAsyncExpiration(): ExpirationTime {
-    let result = computeAsyncExpiration();
+    const currentTime = recalculateCurrentTime();
+    let result = computeAsyncExpiration(currentTime);
     if (result <= lastUniqueAsyncExpiration) {
       // Since we assume the current time monotonically increases, we only hit
       // this branch when computeUniqueAsyncExpiration is fired multiple times
@@ -1156,7 +1296,10 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     return lastUniqueAsyncExpiration;
   }
 
-  function computeExpirationForFiber(fiber: Fiber) {
+  function computeExpirationForFiber(
+    currentTime: ExpirationTime,
+    fiber: Fiber,
+  ) {
     let expirationTime;
     if (expirationContext !== NoWork) {
       // An explicit expiration context was set;
@@ -1176,7 +1319,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
       // performing work. Calculate a new expiration time.
       if (fiber.internalContextTag & AsyncUpdates) {
         // This is an async update
-        expirationTime = computeAsyncExpiration();
+        expirationTime = computeAsyncExpiration(currentTime);
       } else {
         // This is a sync update
         expirationTime = Sync;
@@ -1193,12 +1336,29 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     return !isWorking || updatesAreInteractive;
   }
 
-  function scheduleWork(fiber: Fiber, expirationTime: ExpirationTime) {
-    return scheduleWorkImpl(fiber, expirationTime, false);
+  function retryOnPromiseResolution(
+    root: FiberRoot,
+    blockedTime: ExpirationTime,
+  ) {
+    unblockPendingWork(root, blockedTime);
+    const retryTime = findNextExpirationTimeToWorkOn(root);
+
+    if (retryTime !== NoWork) {
+      requestRetry(root, retryTime);
+    }
+  }
+
+  function scheduleWork(
+    fiber: Fiber,
+    startTime: ExpirationTime,
+    expirationTime: ExpirationTime,
+  ) {
+    return scheduleWorkImpl(fiber, startTime, expirationTime, false);
   }
 
   function scheduleWorkImpl(
     fiber: Fiber,
+    startTime: ExpirationTime,
     expirationTime: ExpirationTime,
     isErrorRecovery: boolean,
   ) {
@@ -1242,9 +1402,9 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
             resetContext();
           }
           if (checkIfUpdatesAreInteractive()) {
-            addPendingWork(root, expirationTime);
+            addPendingWork(root, startTime, expirationTime);
           } else {
-            addNonInteractivePendingWork(root, expirationTime);
+            addNonInteractivePendingWork(root, startTime, expirationTime);
           }
           requestWork(root, expirationTime);
         } else {
@@ -1262,15 +1422,16 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
 
   function recalculateCurrentTime(): ExpirationTime {
     // Subtract initial time so it fits inside 32bits
-    const ms = now() - startTime;
-    mostRecentCurrentTime = msToExpirationTime(ms);
+    mostRecentCurrentTimeMs = now() - originalStartTimeMs;
+    mostRecentCurrentTime = msToExpirationTime(mostRecentCurrentTimeMs);
     return mostRecentCurrentTime;
   }
 
   function deferredUpdates<A>(fn: () => A): A {
     const previousExpirationContext = expirationContext;
     const previousUpdatesAreInteractive = updatesAreInteractive;
-    expirationContext = computeAsyncExpiration();
+    const currentTime = recalculateCurrentTime();
+    expirationContext = computeAsyncExpiration(currentTime);
     // We assume any use of `deferredUpdates` is to split a high-priority
     // interactive update into separate high and low values. Set this to true so
     // that the low-pri value is treated as if it were the result of an
@@ -1339,12 +1500,19 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     }
 
     // Compute a timeout for the given expiration time.
-    const currentMs = now() - startTime;
+    const currentMs = now() - originalStartTimeMs;
     const expirationMs = expirationTimeToMs(expirationTime);
     const timeout = expirationMs - currentMs;
 
     callbackExpirationTime = expirationTime;
     callbackID = scheduleDeferredCallback(performAsyncWork, {timeout});
+  }
+
+  function requestTimeout(root: FiberRoot, ms: number) {
+    setTimeout(() => {
+      const currentTime = recalculateCurrentTime();
+      requestRetry(root, currentTime);
+    }, ms);
   }
 
   function requestRetry(root: FiberRoot, expirationTime: ExpirationTime) {
@@ -1774,6 +1942,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   }
 
   return {
+    recalculateCurrentTime,
     computeExpirationForFiber,
     scheduleWork,
     requestWork,

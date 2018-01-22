@@ -2,6 +2,7 @@ let React;
 let Fragment;
 let ReactNoop;
 let AsyncBoundary;
+let ExpirationBoundary;
 
 let textCache;
 let pendingTextCache;
@@ -13,6 +14,7 @@ describe('ReactBlocking', () => {
     Fragment = React.Fragment;
     ReactNoop = require('react-noop-renderer');
     AsyncBoundary = React.AsyncBoundary;
+    ExpirationBoundary = React.ExpirationBoundary;
 
     textCache = new Set();
     pendingTextCache = new Map();
@@ -77,6 +79,19 @@ describe('ReactBlocking', () => {
     }
     ReactNoop.yield(text);
     return <span prop={text} />;
+  }
+
+  function Fallback(props) {
+    return (
+      <ExpirationBoundary timeout={props.timeout}>
+        {didExpire => (
+          <Fragment>
+            <div hidden={didExpire}>{props.children}</div>
+            <div>{didExpire ? props.placeholder : null}</div>
+          </Fragment>
+        )}
+      </ExpirationBoundary>
+    );
   }
 
   it('blocks rendering and continues later', async () => {
@@ -757,6 +772,161 @@ describe('ReactBlocking', () => {
         span('More'),
       ]);
     });
+  });
+
+  it('forces an expiration after an update times out', async () => {
+    ReactNoop.render(
+      <Fragment>
+        <Fallback placeholder={<Text text="Loading..." />}>
+          <AsyncText text="Async" ms={20000} />
+        </Fallback>
+        <Text text="Sync" />
+      </Fragment>,
+    );
+
+    expect(ReactNoop.flush()).toEqual([
+      // The async child blocks
+      'Blocked! [Async]',
+      // Continue on the sibling
+      'Sync',
+    ]);
+    // The update hasn't expired yet, so we commit nothing.
+    expect(ReactNoop.getChildren()).toEqual([]);
+
+    // Advance both React's virtual time and Jest's timers by enough to expire
+    // the update, but not by enough to flush the blocking promise.
+    ReactNoop.expire(10000);
+    await flushPromises(10000);
+    expect(ReactNoop.flush()).toEqual([
+      // Still blocked.
+      'Blocked! [Async]',
+      // Now that the update has expired, we render the fallback UI
+      'Loading...',
+      'Sync',
+    ]);
+    expect(ReactNoop.getChildren()).toEqual([
+      div(),
+      div(span('Loading...')),
+      span('Sync'),
+    ]);
+
+    // Once the promise resolves, we render the blocked view
+    await flushPromises();
+    expect(ReactNoop.flush()).toEqual(['Promise resolved [Async]', 'Async']);
+    expect(ReactNoop.getChildren()).toEqual([
+      div(span('Async')),
+      div(),
+      span('Sync'),
+    ]);
+  });
+  it('renders an expiration boundary synchronously', async () => {
+    // Synchronously render a tree with blockers
+    ReactNoop.flushSync(() =>
+      ReactNoop.render(
+        <Fragment>
+          <Fallback placeholder={<Text text="Loading..." />}>
+            <AsyncText text="Async" />
+          </Fallback>
+          <Text text="Sync" />
+        </Fragment>,
+      ),
+    );
+    expect(ReactNoop.clearYields()).toEqual([
+      // The async child blocks
+      'Blocked! [Async]',
+      // We immediately render the fallback UI
+      'Loading...',
+      // Continue on the sibling
+      'Sync',
+    ]);
+    // The tree commits synchronously
+    expect(ReactNoop.getChildren()).toEqual([
+      div(),
+      div(span('Loading...')),
+      span('Sync'),
+    ]);
+
+    // Once the promise resolves, we render the blocked view
+    await flushPromises();
+    expect(ReactNoop.flush()).toEqual(['Promise resolved [Async]', 'Async']);
+    expect(ReactNoop.getChildren()).toEqual([
+      div(span('Async')),
+      div(),
+      span('Sync'),
+    ]);
+  });
+
+  it('blocking inside an expired expiration boundary will bubble to the next one', async () => {
+    ReactNoop.flushSync(() =>
+      ReactNoop.render(
+        <Fragment>
+          <Fallback placeholder={<Text text="Loading (outer)..." />}>
+            <Fallback placeholder={<AsyncText text="Loading (inner)..." />}>
+              <AsyncText text="Async" />
+            </Fallback>
+            <Text text="Sync" />
+          </Fallback>
+        </Fragment>,
+      ),
+    );
+    expect(ReactNoop.clearYields()).toEqual([
+      'Blocked! [Async]',
+      'Blocked! [Loading (inner)...]',
+      'Sync',
+      'Loading (outer)...',
+    ]);
+    // The tree commits synchronously
+    expect(ReactNoop.getChildren()).toEqual([
+      div(),
+      div(span('Loading (outer)...')),
+    ]);
+  });
+
+  it('expires early with a `timeout` option', async () => {
+    ReactNoop.render(
+      <Fragment>
+        <Fallback timeout={100} placeholder={<Text text="Loading..." />}>
+          <AsyncText text="Async" ms={1000} />
+        </Fallback>
+        <Text text="Sync" />
+      </Fragment>,
+    );
+
+    expect(ReactNoop.flush()).toEqual([
+      // The async child blocks
+      'Blocked! [Async]',
+      // Continue on the sibling
+      'Sync',
+    ]);
+    // The update hasn't expired yet, so we commit nothing.
+    expect(ReactNoop.getChildren()).toEqual([]);
+
+    // Advance both React's virtual time and Jest's timers by enough to trigger
+    // the timeout, but not by enough to flush the promise or reach the true
+    // expiration time.
+    ReactNoop.expire(120);
+    await flushPromises(120);
+    expect(ReactNoop.flush()).toEqual([
+      // Still blocked.
+      'Blocked! [Async]',
+      // Now that the expiration view has timed out, we render the fallback UI
+      'Loading...',
+      'Sync',
+    ]);
+    expect(ReactNoop.getChildren()).toEqual([
+      div(),
+      div(span('Loading...')),
+      span('Sync'),
+    ]);
+
+    // Once the promise resolves, we render the blocked view
+    await flushPromises();
+    expect(ReactNoop.flush()).toEqual(['Promise resolved [Async]', 'Async']);
+    expect(ReactNoop.getChildren()).toEqual([
+      div(span('Async')),
+      div(),
+      span('Sync'),
+    ]);
   });
 
   describe('splitting a high-pri update into high and low', () => {

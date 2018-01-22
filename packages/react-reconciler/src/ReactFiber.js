@@ -27,6 +27,7 @@ import {
   ReturnComponent,
   Fragment,
   AsyncBoundary,
+  ExpirationBoundary,
 } from 'shared/ReactTypeOfWork';
 import getComponentName from 'shared/getComponentName';
 
@@ -37,6 +38,7 @@ import {
   REACT_RETURN_TYPE,
   REACT_CALL_TYPE,
   REACT_ASYNC_BOUNDARY_TYPE,
+  REACT_EXPIRATION_BOUNDARY_TYPE,
 } from 'shared/ReactSymbols';
 
 let hasBadMapPolyfill;
@@ -356,6 +358,15 @@ export function createFiberFromElement(
           internalContextTag,
         );
         fiber.type = REACT_ASYNC_BOUNDARY_TYPE;
+        break;
+      case REACT_EXPIRATION_BOUNDARY_TYPE:
+        fiber = createFiber(
+          ExpirationBoundary,
+          pendingProps,
+          key,
+          internalContextTag,
+        );
+        fiber.type = REACT_EXPIRATION_BOUNDARY_TYPE;
         break;
       default: {
         if (

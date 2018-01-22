@@ -9,6 +9,8 @@
 
 import type {HostConfig} from 'react-reconciler';
 import type {Fiber} from './ReactFiber';
+import type {FiberRoot} from './ReactFiber';
+import type {ExpirationTime} from './ReactFiberExpirationTime';
 
 import {
   enableMutatingReconciler,
@@ -23,6 +25,7 @@ import {
   HostPortal,
   CallComponent,
   AsyncBoundary,
+  ExpirationBoundary,
 } from 'shared/ReactTypeOfWork';
 import ReactErrorUtils from 'shared/ReactErrorUtils';
 import {Placement, Update, ContentReset} from 'shared/ReactTypeOfSideEffect';
@@ -31,6 +34,7 @@ import invariant from 'fbjs/lib/invariant';
 import {commitCallbacks} from './ReactFiberUpdateQueue';
 import {onCommitUnmount} from './ReactFiberDevToolsHook';
 import {startPhaseTimer, stopPhaseTimer} from './ReactDebugFiberPerf';
+import {blockExpiredWork} from './ReactFiberPendingWork';
 
 const {
   invokeGuardedCallback,
@@ -41,6 +45,10 @@ const {
 export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
   config: HostConfig<T, P, I, TI, HI, PI, C, CC, CX, PL>,
   captureError: (failedFiber: Fiber, error: mixed) => Fiber | null,
+  retryOnPromiseResolution: (
+    root: FiberRoot,
+    blockedTime: ExpirationTime,
+  ) => void,
 ) {
   const {getPublicInstance, mutation, persistence} = config;
 
@@ -94,7 +102,13 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     }
   }
 
-  function commitLifeCycles(current: Fiber | null, finishedWork: Fiber): void {
+  function commitLifeCycles(
+    finishedRoot: FiberRoot,
+    current: Fiber | null,
+    finishedWork: Fiber,
+    currentTime: ExpirationTime,
+    committedExpirationTime: ExpirationTime,
+  ): void {
     switch (finishedWork.tag) {
       case ClassComponent: {
         const instance = finishedWork.stateNode;
@@ -154,6 +168,13 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         return;
       }
       case AsyncBoundary: {
+        return;
+      }
+      case ExpirationBoundary: {
+        const promise = finishedWork.stateNode;
+        const blockedTime = committedExpirationTime;
+        blockExpiredWork(finishedRoot, currentTime, blockedTime);
+        promise.then(() => retryOnPromiseResolution(finishedRoot, blockedTime));
         return;
       }
       default: {
@@ -640,6 +661,9 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         return;
       }
       case AsyncBoundary: {
+        return;
+      }
+      case ExpirationBoundary: {
         return;
       }
       default: {

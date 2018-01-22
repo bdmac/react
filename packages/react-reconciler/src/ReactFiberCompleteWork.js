@@ -32,8 +32,9 @@ import {
   ReturnComponent,
   Fragment,
   AsyncBoundary,
+  ExpirationBoundary,
 } from 'shared/ReactTypeOfWork';
-import {Placement, Ref, Update, Err} from 'shared/ReactTypeOfSideEffect';
+import {Placement, Ref, Update} from 'shared/ReactTypeOfSideEffect';
 import invariant from 'fbjs/lib/invariant';
 
 import {reconcileChildFibers} from './ReactChildFiber';
@@ -578,6 +579,8 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
         // Does nothing.
         return null;
       case AsyncBoundary:
+        return null;
+      case ExpirationBoundary:
         return null;
       case Fragment:
         return null;

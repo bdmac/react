@@ -19,6 +19,7 @@ import {
   getIteratorFn,
   REACT_FRAGMENT_TYPE,
   REACT_ASYNC_BOUNDARY_TYPE,
+  REACT_EXPIRATION_BOUNDARY_TYPE,
 } from 'shared/ReactSymbols';
 import checkPropTypes from 'prop-types/checkPropTypes';
 import warning from 'fbjs/lib/warning';
@@ -287,6 +288,7 @@ export function createElementWithValidation(type, props, children) {
     typeof type === 'function' ||
     // Note: its typeof might be other than 'symbol' or 'number' if it's a polyfill.
     type === REACT_ASYNC_BOUNDARY_TYPE ||
+    type === REACT_EXPIRATION_BOUNDARY_TYPE ||
     type === REACT_FRAGMENT_TYPE;
 
   // We warn in this case but don't throw. We expect the element creation to

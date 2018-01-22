@@ -30,6 +30,9 @@ export const REACT_ASYNC_BOUNDARY_TYPE = hasSymbol
 export const REACT_CAPTURED_VALUE = hasSymbol
   ? Symbol.for('react.capturedValue')
   : 0xeacf;
+export const REACT_EXPIRATION_BOUNDARY_TYPE = hasSymbol
+  ? Symbol.for('react.expirationBoundary')
+  : 0xeada;
 
 const MAYBE_ITERATOR_SYMBOL = typeof Symbol === 'function' && Symbol.iterator;
 const FAUX_ITERATOR_SYMBOL = '@@iterator';

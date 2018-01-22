@@ -23,13 +23,14 @@ const getPrototypeOf =
   Object.getPrototypeOf === 'function' ? Object.getPrototypeOf : null;
 const objectToString = Object.prototype.toString;
 
-export type TypeOfCapturedValue = 0 | 1 | 2 | 3 | 4;
+export type TypeOfCapturedValue = 0 | 1 | 2 | 3 | 4 | 5;
 
 export const UnknownType = 0;
 export const ErrorType = 1;
 export const PromiseType = 2;
 export const BlockerType = 3;
-export const CombinedType = 4;
+export const TimeoutType = 4;
+export const CombinedType = 5;
 
 export type CapturedValue<T> = {|
   $$typeof: Symbol | number,
@@ -235,6 +236,20 @@ export function createBlocker(
     $$typeof: REACT_CAPTURED_VALUE,
     value: promise,
     tag: BlockerType,
+    source: workInProgress,
+    boundary: null,
+    stack: null,
+  };
+}
+
+export function createTimeout(
+  workInProgress: Fiber,
+  ms: number,
+): CapturedValue<number> {
+  return {
+    $$typeof: REACT_CAPTURED_VALUE,
+    value: ms,
+    tag: TimeoutType,
     source: workInProgress,
     boundary: null,
     stack: null,

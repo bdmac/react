@@ -23,8 +23,10 @@ export type PendingWork = {
   // We use `expirationTime` to represent both a priority and a timeout. There's
   // no inherent reason why they need to be the same, and we may split them
   // in the future.
+  startTime: ExpirationTime,
   expirationTime: ExpirationTime,
   isBlocked: boolean,
+  didExpire: boolean,
   needsRetry: boolean,
   isInteractive: boolean,
   next: PendingWork | null,
@@ -41,6 +43,7 @@ function insertPendingWorkAtPosition(root, work, insertAfter, insertBefore) {
 
 export function addPendingWork(
   root: FiberRoot,
+  startTime: ExpirationTime,
   expirationTime: ExpirationTime,
 ): void {
   let match = null;
@@ -65,8 +68,10 @@ export function addPendingWork(
   }
   if (match === null) {
     const work: PendingWork = {
+      startTime,
       expirationTime,
       isBlocked: false,
+      didExpire: false,
       needsRetry: false,
       isInteractive: true,
       next: null,
@@ -76,6 +81,7 @@ export function addPendingWork(
 }
 export function addNonInteractivePendingWork(
   root: FiberRoot,
+  startTime: ExpirationTime,
   expirationTime: ExpirationTime,
 ): void {
   // Non-interactive work updates are treated differently because, while they
@@ -97,8 +103,10 @@ export function addNonInteractivePendingWork(
   }
   // No matching level found. Create a new one.
   const work: PendingWork = {
+    startTime,
     expirationTime,
     isBlocked: false,
+    didExpire: false,
     needsRetry: false,
     isInteractive: false,
     next: null,
@@ -108,11 +116,15 @@ export function addNonInteractivePendingWork(
 
 export function flushPendingWork(
   root: FiberRoot,
+  currentTime: ExpirationTime,
   remainingExpirationTime: ExpirationTime,
 ) {
   // Pop all work that has higher priority than the remaining priority.
   let firstUnflushedWork = root.firstPendingWork;
   while (firstUnflushedWork !== null) {
+    if (firstUnflushedWork.didExpire) {
+      break;
+    }
     if (
       remainingExpirationTime !== NoWork &&
       firstUnflushedWork.expirationTime >= remainingExpirationTime
@@ -126,14 +138,14 @@ export function flushPendingWork(
   if (firstUnflushedWork === null) {
     if (remainingExpirationTime !== NoWork) {
       // There was an update during the render phase that wasn't flushed.
-      addNonInteractivePendingWork(root, remainingExpirationTime);
+      addNonInteractivePendingWork(root, currentTime, remainingExpirationTime);
     }
   } else if (
     remainingExpirationTime !== NoWork &&
     firstUnflushedWork.expirationTime > remainingExpirationTime
   ) {
     // There was an update during the render phase that wasn't flushed.
-    addNonInteractivePendingWork(root, remainingExpirationTime);
+    addNonInteractivePendingWork(root, currentTime, remainingExpirationTime);
   }
 }
 
@@ -155,6 +167,41 @@ export function blockPendingWork(
   }
 }
 
+export function blockExpiredWork(
+  root: FiberRoot,
+  startTime: ExpirationTime,
+  expirationTime: ExpirationTime,
+): void {
+  let insertAfter = null;
+  let insertBefore = root.firstPendingWork;
+  while (insertBefore !== null) {
+    if (insertBefore.expirationTime === expirationTime) {
+      // Found a matching bucket
+      insertBefore.isBlocked = false;
+      insertBefore.needsRetry = false;
+      insertBefore.didExpire = true;
+      return;
+    }
+    if (insertBefore.expirationTime > expirationTime) {
+      // Found the insertion position
+      break;
+    }
+    insertAfter = insertBefore;
+    insertBefore = insertBefore.next;
+  }
+  // No matching level found. Create a new one.
+  const work: PendingWork = {
+    startTime,
+    expirationTime,
+    isBlocked: false,
+    didExpire: true,
+    needsRetry: false,
+    isInteractive: false,
+    next: null,
+  };
+  insertPendingWorkAtPosition(root, work, insertAfter, insertBefore);
+}
+
 export function unblockPendingWork(
   root: FiberRoot,
   expirationTime: ExpirationTime,
@@ -164,6 +211,7 @@ export function unblockPendingWork(
   while (work !== null) {
     if (work.expirationTime === expirationTime) {
       work.needsRetry = true;
+      work.didExpire = false;
     }
     if (work.expirationTime > expirationTime) {
       return;
@@ -184,7 +232,11 @@ export function findNextExpirationTimeToWorkOn(
   let lastRetryTime = NoWork;
   let work = root.firstPendingWork;
   while (work !== null) {
-    if (!work.isBlocked && (work.isInteractive || lastBlockedTime === NoWork)) {
+    if (
+      !work.isBlocked &&
+      !work.didExpire &&
+      (work.isInteractive || lastBlockedTime === NoWork)
+    ) {
       return work.expirationTime;
     }
     if (lastBlockedTime === NoWork || lastBlockedTime < work.expirationTime) {
@@ -214,4 +266,15 @@ export function findNextExpirationTimeToWorkOn(
     return lastRetryTime;
   }
   return lastNonInteractiveTime;
+}
+
+export function findStartTime(root: FiberRoot, expirationTime: ExpirationTime) {
+  let match = root.firstPendingWork;
+  while (match !== null) {
+    if (match.expirationTime === expirationTime) {
+      return match.startTime;
+    }
+    match = match.next;
+  }
+  return NoWork;
 }

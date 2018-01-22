@@ -446,10 +446,6 @@ const ReactNoop = {
   },
 
   yield(value: mixed) {
-    // console.log(
-    //   '                                                            ',
-    //   value,
-    // );
     if (yieldedValues === null) {
       yieldedValues = [value];
     } else {
@@ -458,7 +454,9 @@ const ReactNoop = {
   },
 
   clearYields() {
+    const values = yieldedValues;
     yieldedValues = null;
+    return values;
   },
 
   hasScheduledCallback() {

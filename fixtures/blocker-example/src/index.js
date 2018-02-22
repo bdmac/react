@@ -150,6 +150,12 @@ class App extends React.Component {
     });
   }, 1000);
 
+  throttledHandleChange = _.throttle((value) => {
+    ReactDOM.flushSync(() => {
+      this.setState({ input: value });
+    });
+  }, 1000);
+
   handleChange = (e) => {
     const value = e.target.value;
     switch (this.state.strategy) {
@@ -158,6 +164,9 @@ class App extends React.Component {
         break;
       case 'syncDebounced':
         this.debouncedHandleChange(e.target.value);
+        break;
+      case 'syncThrottled':
+        this.throttledHandleChange(e.target.value);
         break;
       case 'async':
         Promise.resolve().then(() => {
@@ -184,6 +193,7 @@ class App extends React.Component {
           <select value={this.state.strategy} onChange={e => this.setState({ strategy: e.target.value })}>
             <option value="sync">Sync</option>
             <option value="syncDebounced">Sync (debounced)</option>
+            <option value="syncThrottled">Sync (throttled)</option>
             <option value="async">Async</option>
           </select>
           <br />

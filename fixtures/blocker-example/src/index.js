@@ -35,8 +35,10 @@ class DebouncedValue extends React.PureComponent {
   state = {debouncedValue: this.props.defaultValue};
 
   update = debounce(() => {
-    this.setState({
-      debouncedValue: this.props.value
+    ReactDOM.flushSync(() => {
+      this.setState({
+        debouncedValue: this.props.value
+      });      
     });
   }, 500);
 

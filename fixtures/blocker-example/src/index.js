@@ -10,50 +10,6 @@ import {
 } from 'victory';
 import './index.css';
 
-class SyncValue extends React.Component {
-  render() {
-    return this.props.children(this.props.value);
-  }
-}
-
-class AsyncValue extends React.PureComponent {
-  state = {asyncValue: this.props.value};
-  componentDidMount() {
-    ReactDOM.unstable_deferredUpdates(() => {
-      this.setState((state, props) => ({asyncValue: props.value}));
-    });
-  }
-  componentDidUpdate() {
-    if (this.props.value !== this.state.asyncValue) {
-      ReactDOM.unstable_deferredUpdates(() => {
-        this.setState((state, props) => ({asyncValue: props.value}));
-      });
-    }
-  }
-  render() {
-    return this.props.children(this.state.asyncValue);
-  }
-}
-
-class Demo extends React.Component {
-  state = {
-    async: false,
-  };
-
-  render() {
-    const Strategy = this.state.async ? AsyncValue : SyncValue;
-    return (
-      <div>
-        <label>
-          <input type="checkbox" checked={this.state.async} onChange={(e) => this.setState({ async: e.target.checked })} />
-          Async
-        </label>
-        <Strategy value={this.props.value}>{this.props.children}</Strategy>
-      </div>
-    )
-  }
-}
-
 // This custom component is supplied in place of Path
 class GradientPath extends React.Component {
   toGrayscale(color) {
@@ -89,7 +45,13 @@ class GradientPath extends React.Component {
 }
 
 class VictoryExample extends React.PureComponent {
+  componentDidUpdate(prevProps) {
+    if (prevProps.streamData !== this.props.streamData) {
+      console.log('flush');
+    }
+  }
   render() {
+    console.log('render');
     const streamData = this.props.streamData;
     const colors = [
       "#006064", "#00796B", "#8BC34A", "#DCE775",
@@ -155,7 +117,8 @@ class App extends React.Component {
     super();
     this.state = {
       input: '',
-      complexity: 30
+      complexity: 30,
+      strategy: 'sync',
     };
   }
   // This data is manipulated to approximate a stream.
@@ -180,27 +143,60 @@ class App extends React.Component {
       cachedData.clear();
     }
   }
+
+  debouncedHandleChange = _.debounce((value) => {
+    ReactDOM.flushSync(() => {
+      this.setState({ input: value });
+    });
+  }, 1000);
+
+  handleChange = (e) => {
+    const value = e.target.value;
+    switch (this.state.strategy) {
+      case 'sync':
+        this.setState({ input: value });
+        break;
+      case 'syncDebounced':
+        this.debouncedHandleChange(e.target.value);
+        break;
+      case 'async':
+        Promise.resolve().then(() => {
+          ReactDOM.unstable_deferredUpdates(() => {
+            this.setState((state) => state.input === value ? null : ({
+              input: value
+            }))
+          });        
+        });
+        break;
+    }
+  }
   render() {
     return (
       <div  style={{ width: '100vw', float: 'left' }}>
         <div style={{ width: '40vw', float: 'left' }}>
-          <input style={{ fontSize: '30px' }} value={this.state.input} onChange={e => this.setState({ input: e.target.value })} />
+          <input
+            style={{ fontSize: '30px' }} defaultValue={this.state.input}
+            onChange={this.handleChange}
+          />
           <br />
           Chart complexity: <input type="range" min="30" max="2000" value={this.state.complexity} onChange={e => this.setState({ complexity: e.target.value })} />
           <br />
-          <h3>You typed {this.state.input}</h3>
+          <select value={this.state.strategy} onChange={e => this.setState({ strategy: e.target.value })}>
+            <option value="sync">Sync</option>
+            <option value="syncDebounced">Sync (debounced)</option>
+            <option value="async">Async</option>
+          </select>
+          <br />
+          <br />
           <br />
           <img src="https://media0.giphy.com/media/nNxT5qXR02FOM/giphy.gif" />
         </div>
         <div style={{ width: '40vw', float: 'left' }}>
-          <Demo value={this.state.input}>
-            {asyncInput =>
-              <VictoryExample
-                percent={100}
-                streamData={this.getStreamData(asyncInput)}
-              />
-            }
-          </Demo>
+          <h2>{this.state.input}</h2>
+          <VictoryExample
+            percent={100}
+            streamData={this.getStreamData(this.state.input)}
+          />
         </div>
       </div>
     );

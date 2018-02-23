@@ -220,7 +220,7 @@ class App extends React.PureComponent {
           />
           <br />
           <br />
-          <img src="https://media0.giphy.com/media/nNxT5qXR02FOM/giphy.gif" />
+          <img src={require("./giphy.gif")} />
         </div>
         <div style={{ width: '40vw', float: 'left' }}>
           <br />

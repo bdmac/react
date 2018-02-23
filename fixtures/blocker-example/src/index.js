@@ -48,14 +48,15 @@ class VictoryExample extends React.PureComponent {
   static defaultProps = {
     percent: 100
   };
-  
-  componentDidUpdate(prevProps) {
-    if (prevProps.streamData !== this.props.streamData) {
-      console.log('flush');
-    }
-  }
+
+  // componentDidUpdate(prevProps) {
+  //   if (prevProps.streamData !== this.props.streamData) {
+  //     console.log('flush');
+  //   }
+  // }
+
   render() {
-    console.log('render');
+    // console.log('render');
     const streamData = this.props.streamData;
     const colors = [
       "#006064", "#00796B", "#8BC34A", "#DCE775",
@@ -123,6 +124,7 @@ class App extends React.PureComponent {
       input: '',
     };
   }
+
   // This data is manipulated to approximate a stream.
   getStreamData(input) {
     if (cachedData.has(input)) {
@@ -140,6 +142,7 @@ class App extends React.PureComponent {
     cachedData.set(input, data);
     return data;
   }
+
   componentDidUpdate(prevProps) {
     if (prevProps.complexity !== this.props.complexity) {
       cachedData.clear();
@@ -147,16 +150,39 @@ class App extends React.PureComponent {
   }
 
   debouncedHandleChange = _.debounce((value) => {
-    ReactDOM.flushSync(() => {
-      this.setState({ input: value });
-    });
+    if (this.props.strategy === 'syncDebounced') {
+      ReactDOM.flushSync(() => {
+        this.setState({ input: value });
+      });
+    }
   }, 1000);
 
   throttledHandleChange = _.throttle((value) => {
-    ReactDOM.flushSync(() => {
-      this.setState({ input: value });
-    });
+    if (this.props.strategy === 'syncThrottled') {
+      ReactDOM.flushSync(() => {
+        this.setState({ input: value });
+      });
+    }
   }, 1000);
+
+  requestFrame(value) {
+    this._frameValue = value;
+    if (this._frame) {
+      return;
+    }
+    this._frame = requestAnimationFrame(this.handleFrame);
+  }
+
+  handleFrame = () => {
+    const value = this._frameValue;
+    if (this.props.strategy === 'syncRAF') {
+      ReactDOM.flushSync(() => {
+        this.setState({ input: value });
+      });
+    }
+    this._frameValue = null;
+    this._frame = null;
+  };
 
   handleChange = (e) => {
     const value = e.target.value;
@@ -170,13 +196,14 @@ class App extends React.PureComponent {
       case 'syncThrottled':
         this.throttledHandleChange(e.target.value);
         break;
+      case 'syncRAF':
+        this.requestFrame(e.target.value);
+        break;
       case 'async':
-        Promise.resolve().then(() => {
-          ReactDOM.unstable_deferredUpdates(() => {
-            this.setState((state) => state.input === value ? null : ({
-              input: value
-            }))
-          });        
+        magically(() => {          
+          this.setState({
+            input: value
+          });
         });
         break;
     }
@@ -223,6 +250,7 @@ class Demo extends React.Component {
           <option value="sync">Sync</option>
           <option value="syncDebounced">Sync (debounced)</option>
           <option value="syncThrottled">Sync (throttled)</option>
+          <option value="syncRAF">Sync (in a rAF)</option>
           <option value="async">Async</option>
         </select>
         &nbsp;&nbsp;&nbsp;
@@ -236,6 +264,12 @@ class Demo extends React.Component {
       </div>
     );
   }
+}
+
+function magically(fn) {
+  Promise.resolve().then(() => {
+    ReactDOM.unstable_deferredUpdates(fn);
+  });
 }
 
 const container = document.getElementById('root');

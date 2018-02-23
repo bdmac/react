@@ -45,6 +45,10 @@ class GradientPath extends React.Component {
 }
 
 class VictoryExample extends React.PureComponent {
+  static defaultProps = {
+    percent: 100
+  };
+  
   componentDidUpdate(prevProps) {
     if (prevProps.streamData !== this.props.streamData) {
       console.log('flush');
@@ -112,13 +116,11 @@ class VictoryExample extends React.PureComponent {
 
 let cachedData = new Map();
 
-class App extends React.Component {
+class App extends React.PureComponent {
   constructor() {
     super();
     this.state = {
       input: '',
-      complexity: 30,
-      strategy: 'sync',
     };
   }
   // This data is manipulated to approximate a stream.
@@ -127,7 +129,7 @@ class App extends React.Component {
       return cachedData.get(input);
     }
     const data = _.range(7).map((i) => {
-      return _.range(this.state.complexity).map((j) => {
+      return _.range(this.props.complexity).map((j) => {
         return {
           x: j,
           y: (10 - i) * _.random(10 - i, 20 - 2 * i),
@@ -138,8 +140,8 @@ class App extends React.Component {
     cachedData.set(input, data);
     return data;
   }
-  componentDidUpdate(prevProps, prevState) {
-    if (prevState.complexity !== this.state.complexity) {
+  componentDidUpdate(prevProps) {
+    if (prevProps.complexity !== this.props.complexity) {
       cachedData.clear();
     }
   }
@@ -158,7 +160,7 @@ class App extends React.Component {
 
   handleChange = (e) => {
     const value = e.target.value;
-    switch (this.state.strategy) {
+    switch (this.props.strategy) {
       case 'sync':
         this.setState({ input: value });
         break;
@@ -181,41 +183,63 @@ class App extends React.Component {
   }
   render() {
     return (
-      <div  style={{ width: '100vw', float: 'left' }}>
+      <div style={{ width: '100vw', float: 'left' }}>
         <div style={{ width: '40vw', float: 'left' }}>
           <input
-            style={{ fontSize: '30px' }} defaultValue={this.state.input}
+            style={{ fontSize: '30px', width: '90vw' }}
+            placeholder='input value'
+            defaultValue={this.state.input}
             onChange={this.handleChange}
           />
-          <br />
-          Chart complexity: <input type="range" min="30" max="2000" value={this.state.complexity} onChange={e => this.setState({ complexity: e.target.value })} />
-          <br />
-          <select value={this.state.strategy} onChange={e => this.setState({ strategy: e.target.value })}>
-            <option value="sync">Sync</option>
-            <option value="syncDebounced">Sync (debounced)</option>
-            <option value="syncThrottled">Sync (throttled)</option>
-            <option value="async">Async</option>
-          </select>
-          <br />
           <br />
           <br />
           <img src="https://media0.giphy.com/media/nNxT5qXR02FOM/giphy.gif" />
         </div>
         <div style={{ width: '40vw', float: 'left' }}>
-          <h2>{this.state.input}</h2>
+          <br />
           <VictoryExample
-            percent={100}
             streamData={this.getStreamData(this.state.input)}
           />
+          <br />
+          <h6 style={{ opacity: 0.2 }}>
+            {this.state.input}
+          </h6>
         </div>
       </div>
     );
   }
 }
+
+class Demo extends React.Component {
+  state = {
+    strategy: 'sync',
+    complexity: 30,
+  };
+  render() {
+    const Wrapper = this.state.strategy === 'async' ? React.unstable_AsyncMode : 'div';
+    return (
+      <div>
+        <select value={this.state.strategy} onChange={e => this.setState({ strategy: e.target.value })}>
+          <option value="sync">Sync</option>
+          <option value="syncDebounced">Sync (debounced)</option>
+          <option value="syncThrottled">Sync (throttled)</option>
+          <option value="async">Async</option>
+        </select>
+        &nbsp;&nbsp;&nbsp;
+        <label>
+          Chart complexity: <input type="range" min="30" max="4000" value={this.state.complexity} onChange={e => this.setState({ complexity: e.target.value })} />
+        </label>
+        <hr />
+        <Wrapper>
+          <App {...this.state} />
+        </Wrapper>
+      </div>
+    );
+  }
+}
+
 const container = document.getElementById('root');
 ReactDOM.render(
-  <React.unstable_AsyncMode>
-    <App />
-  </React.unstable_AsyncMode>,
+  <Demo />,
   container
 );

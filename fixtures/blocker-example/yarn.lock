@@ -5290,9 +5290,8 @@ react-dev-utils@^4.2.1:
     strip-ansi "3.0.1"
     text-table "0.2.0"
 
-react-dom@^16.4.0-alpha.7926752:
-  version "16.4.0-alpha.7926752"
-  resolved "https://registry.yarnpkg.com/react-dom/-/react-dom-16.4.0-alpha.7926752.tgz#e825504a975456ce2fa989fabdfdf2f30c7d7c3b"
+"react-dom@file:./rrr/react-dom":
+  version "16.3.0-alpha.1"
   dependencies:
     fbjs "^0.8.16"
     loose-envify "^1.1.0"
@@ -5356,9 +5355,8 @@ react-scripts@1.0.17:
   optionalDependencies:
     fsevents "1.1.2"
 
-react@^16.4.0-alpha.7926752:
-  version "16.4.0-alpha.7926752"
-  resolved "https://registry.yarnpkg.com/react/-/react-16.4.0-alpha.7926752.tgz#f7a91b9474c26084e55e7c025ff4fe6378e2e506"
+"react@file:./rrr/react":
+  version "16.3.0-alpha.1"
   dependencies:
     fbjs "^0.8.16"
     loose-envify "^1.1.0"

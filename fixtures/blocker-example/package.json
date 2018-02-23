@@ -4,8 +4,8 @@
   "private": true,
   "dependencies": {
     "glamor": "^2.20.40",
-    "react": "^16.4.0-alpha.7926752",
-    "react-dom": "^16.4.0-alpha.7926752",
+    "react": "file:./rrr/react",
+    "react-dom": "file:./rrr/react-dom",
     "react-markdown": "^3.2.0",
     "react-scripts": "1.0.17",
     "victory": "^0.25.6"

@@ -354,7 +354,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     }
     enqueueUpdate(current, update, expirationTime);
 
-    scheduleWork(current, expirationTime);
+    scheduleWork(current, currentTime, expirationTime);
     return expirationTime;
   }
 
@@ -434,7 +434,7 @@ export default function<T, P, I, TI, HI, PI, C, CC, CX, PL>(
     ): ExpirationTime {
       const current = container.current;
       const currentTime = recalculateCurrentTime();
-      const expirationTime = computeExpirationForFiber(current);
+      const expirationTime = computeExpirationForFiber(currentTime, current);
       return updateContainerAtExpirationTime(
         element,
         container,

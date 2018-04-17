@@ -15,6 +15,7 @@ import type {LegacyContext} from './ReactFiberContext';
 import type {NewContext} from './ReactFiberNewContext';
 import type {CapturedValue} from './ReactCapturedValue';
 import type {Update} from './ReactUpdateQueue';
+import type {SuspenseThenable} from 'shared/SuspenseThenable';
 
 import {createCapturedValue} from './ReactCapturedValue';
 import {
@@ -83,7 +84,7 @@ export default function<C, CX>(
   onUncaughtError: (error: mixed) => void,
   suspendRoot: (
     root: FiberRoot,
-    thenable: {then: (() => mixed) => mixed},
+    thenable: SuspenseThenable,
     timeoutMs: number,
     suspendedTime: ExpirationTime,
   ) => void,
@@ -158,7 +159,7 @@ export default function<C, CX>(
 
   function waitForPromiseAndScheduleRecovery(finishedWork, thenable) {
     // Await promise
-    thenable.then(() => {
+    const onResolveOrReject = () => {
       // Once the promise resolves, we should try rendering the non-
       // placeholder state again.
       const startTime = recalculateCurrentTime();
@@ -166,7 +167,8 @@ export default function<C, CX>(
       const recoveryUpdate = createUpdate(expirationTime);
       enqueueUpdate(finishedWork, recoveryUpdate, expirationTime);
       scheduleWork(finishedWork, startTime, expirationTime);
-    });
+    };
+    thenable.then(onResolveOrReject, onResolveOrReject);
   }
 
   function throwException(
@@ -193,7 +195,7 @@ export default function<C, CX>(
       // This is a thenable.
       // Allow var because this is used in a closure.
       // eslint-disable-next-line no-var
-      var thenable: {then: (() => mixed) => mixed} = (value: any);
+      var thenable: SuspenseThenable = (value: any);
 
       // Find the earliest timeout of all the timeouts in the ancestor path.
       // TODO: Alternatively, we could store the earliest timeout on the context
@@ -237,9 +239,10 @@ export default function<C, CX>(
       if (msUntilTimeout > 0) {
         // There's still time remaining.
         suspendRoot(root, thenable, earliestTimeoutMs, renderExpirationTime);
-        thenable.then(() => {
+        const onResolveOrReject = () => {
           retrySuspendedRoot(root, renderExpirationTime);
-        });
+        };
+        thenable.then(onResolveOrReject, onResolveOrReject);
         return;
       } else {
         // No time remaining. Need to fallback to palceholder.

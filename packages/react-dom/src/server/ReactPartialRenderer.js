@@ -317,7 +317,7 @@ const RESERVED_PROPS = {
   suppressHydrationWarning: null,
 };
 
-function createOpenTagMarkup(
+export function createOpenTagMarkup(
   tagVerbatim: string,
   tagLowercase: string,
   props: Object,

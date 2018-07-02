@@ -1002,4 +1002,51 @@ describe('Profiler', () => {
       expect(updateCall[4]).toBe(27); // start time
     });
   });
+
+  fit('blah', () => {
+    jest.resetModules();
+    jest.mock('react-reconciler/src/ReactFiberDevToolsHook', () => ({
+      injectInternals: () => {},
+      isDevToolsPresent: true,
+    }));
+    loadModules();
+
+    function Child({root}) {
+      root.current.unstable_yield('Child');
+      return null;
+    }
+
+    class App extends React.Component {
+      componentDidMount() {
+        this.props.root.current.unstable_yield('didMount');
+      }
+      render() {
+        const root = this.props.root;
+        return (
+          <React.Fragment>
+            <Child root={root} />
+            <Child root={root} />
+            <Child root={root} />
+          </React.Fragment>
+        );
+      }
+    }
+
+    const root1 = React.createRef(null);
+    root1.current = ReactTestRenderer.create(<App root={root1} />, {
+      unstable_isAsync: true,
+    });
+
+    const commit = root1.current.unstable_flushWithoutCommitting();
+
+    const root2 = React.createRef(null);
+    ReactTestRenderer.unstable_interactiveUpdates(() => {
+      root2.current = ReactTestRenderer.create(<App root={root2} />, {
+        unstable_isAsync: true,
+      });
+    });
+    root2.current.unstable_flushThrough(['Child', 'Child']);
+
+    commit();
+  });
 });

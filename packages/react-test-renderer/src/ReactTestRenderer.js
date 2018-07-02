@@ -474,6 +474,23 @@ const ReactTestRendererFiber = {
       },
       unstable_flushThrough: TestRendererScheduling.flushThrough,
       unstable_yield: TestRendererScheduling.yieldValue,
+
+      unstable_flushWithoutCommitting() {
+        const batch = {
+          _expirationTime: 1,
+          _defer: true,
+        };
+        root.firstBatch = batch;
+        batch._onComplete = () => {
+          root.firstBatch = null;
+        };
+        TestRendererScheduling.flushAll();
+
+        return () => {
+          batch._defer = false;
+          TestRenderer.flushRoot(root, 1);
+        };
+      },
     };
 
     Object.defineProperty(
@@ -506,6 +523,7 @@ const ReactTestRendererFiber = {
 
   /* eslint-disable camelcase */
   unstable_batchedUpdates: batchedUpdates,
+  unstable_interactiveUpdates: TestRenderer.interactiveUpdates,
   /* eslint-enable camelcase */
 
   unstable_setNowImplementation: TestRendererScheduling.setNowImplementation,

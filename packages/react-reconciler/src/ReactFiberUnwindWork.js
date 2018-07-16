@@ -310,6 +310,7 @@ function throwException(
           renderDidSuspend(root, absoluteTimeoutMs, renderExpirationTime);
 
           workInProgress.effectTag |= ShouldCapture;
+          workInProgress.expirationTime = renderExpirationTime;
           return;
         }
         // This boundary already captured during this render. Continue to the
@@ -334,6 +335,7 @@ function throwException(
       case HostRoot: {
         const errorInfo = value;
         workInProgress.effectTag |= ShouldCapture;
+        workInProgress.expirationTime = renderExpirationTime;
         const update = createRootErrorUpdate(
           workInProgress,
           errorInfo,
@@ -356,6 +358,7 @@ function throwException(
               !isAlreadyFailedLegacyErrorBoundary(instance)))
         ) {
           workInProgress.effectTag |= ShouldCapture;
+          workInProgress.expirationTime = renderExpirationTime;
           // Schedule the error boundary to re-render using updated state
           const update = createClassErrorUpdate(
             workInProgress,

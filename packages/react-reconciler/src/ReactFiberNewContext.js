@@ -119,36 +119,51 @@ export function propagateContextChange(
           dependency.context === context &&
           (dependency.observedBits & changedBits) !== 0
         ) {
-          // Match! Update the expiration time of all the ancestors, including
+          // Match! Schedule an update on this fiber.
+          if (
+            fiber.expirationTime === NoWork ||
+            fiber.expirationTime > renderExpirationTime
+          ) {
+            fiber.expirationTime = renderExpirationTime;
+          }
+          let alternate = fiber.alternate;
+          if (
+            alternate !== null &&
+            (alternate.expirationTime === NoWork ||
+              alternate.expirationTime > renderExpirationTime)
+          ) {
+            alternate.expirationTime = renderExpirationTime;
+          }
+          // Update the child expiration time of all the ancestors, including
           // the alternates.
           let node = fiber;
-          while (node !== null) {
-            const alternate = node.alternate;
+          do {
+            alternate = node.alternate;
             if (
-              node.expirationTime === NoWork ||
-              node.expirationTime > renderExpirationTime
+              node.childExpirationTime === NoWork ||
+              node.childExpirationTime > renderExpirationTime
             ) {
-              node.expirationTime = renderExpirationTime;
+              node.childExpirationTime = renderExpirationTime;
               if (
                 alternate !== null &&
-                (alternate.expirationTime === NoWork ||
-                  alternate.expirationTime > renderExpirationTime)
+                (alternate.childExpirationTime === NoWork ||
+                  alternate.childExpirationTime > renderExpirationTime)
               ) {
-                alternate.expirationTime = renderExpirationTime;
+                alternate.childExpirationTime = renderExpirationTime;
               }
             } else if (
               alternate !== null &&
-              (alternate.expirationTime === NoWork ||
-                alternate.expirationTime > renderExpirationTime)
+              (alternate.childExpirationTime === NoWork ||
+                alternate.childExpirationTime > renderExpirationTime)
             ) {
-              alternate.expirationTime = renderExpirationTime;
+              alternate.childExpirationTime = renderExpirationTime;
             } else {
               // Neither alternate was updated, which means the rest of the
               // ancestor path already has sufficient priority.
               break;
             }
             node = node.return;
-          }
+          } while (node !== null);
           // Don't scan deeper than a matching consumer. When we render the
           // consumer, we'll continue scanning from that point. This way the
           // scanning work is time-sliced.

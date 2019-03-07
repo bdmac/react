@@ -515,50 +515,50 @@
       "filename": "ReactDOM-dev.js",
       "bundleType": "FB_WWW_DEV",
       "packageName": "react-dom",
-      "size": 809740,
-      "gzip": 179616
+      "size": 819248,
+      "gzip": 181059
     },
     {
       "filename": "ReactDOM-prod.js",
       "bundleType": "FB_WWW_PROD",
       "packageName": "react-dom",
-      "size": 329960,
-      "gzip": 60112
+      "size": 324857,
+      "gzip": 59731
     },
     {
       "filename": "ReactTestUtils-dev.js",
       "bundleType": "FB_WWW_DEV",
       "packageName": "react-dom",
-      "size": 44795,
-      "gzip": 12159
+      "size": 45831,
+      "gzip": 12309
     },
     {
       "filename": "ReactDOMUnstableNativeDependencies-dev.js",
       "bundleType": "FB_WWW_DEV",
       "packageName": "react-dom",
-      "size": 59002,
-      "gzip": 14967
+      "size": 59741,
+      "gzip": 15075
     },
     {
       "filename": "ReactDOMUnstableNativeDependencies-prod.js",
       "bundleType": "FB_WWW_PROD",
       "packageName": "react-dom",
-      "size": 26900,
-      "gzip": 5426
+      "size": 26812,
+      "gzip": 5395
     },
     {
       "filename": "ReactDOMServer-dev.js",
       "bundleType": "FB_WWW_DEV",
       "packageName": "react-dom",
-      "size": 127337,
-      "gzip": 33235
+      "size": 129481,
+      "gzip": 33473
     },
     {
       "filename": "ReactDOMServer-prod.js",
       "bundleType": "FB_WWW_PROD",
       "packageName": "react-dom",
-      "size": 46343,
-      "gzip": 10662
+      "size": 46487,
+      "gzip": 10646
     },
     {
       "filename": "ReactART-dev.js",
@@ -1075,15 +1075,15 @@
       "filename": "ReactFire-dev.js",
       "bundleType": "FB_WWW_DEV",
       "packageName": "react-dom",
-      "size": 808931,
-      "gzip": 179569
+      "size": 818439,
+      "gzip": 181019
     },
     {
       "filename": "ReactFire-prod.js",
       "bundleType": "FB_WWW_PROD",
       "packageName": "react-dom",
-      "size": 318110,
-      "gzip": 57721
+      "size": 313169,
+      "gzip": 57354
     },
     {
       "filename": "ReactFire-profiling.js",

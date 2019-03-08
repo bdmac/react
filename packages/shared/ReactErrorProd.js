@@ -17,11 +17,12 @@ function ReactErrorProd(code, args) {
       url += '&args[]=' + encodeURIComponent(args[i]);
     }
   }
-  return new Error(
+
+  const msg =
     `Minified React error #${code}; visit ${url} for the full message or ` +
-      'use the non-minified dev environment for full errors and additional ' +
-      'helpful warnings. ',
-  );
+    'use the non-minified dev environment for full errors and additional ' +
+    'helpful warnings. ';
+  return new Error(msg);
 }
 
 export default ReactErrorProd;

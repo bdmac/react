@@ -75,6 +75,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     if (typeof parentInstance.rootID !== 'string') {
       // Some calls to this aren't typesafe.
       // This helps surface mistakes in tests.
+      // extract-errors/skip
       throw new Error(
         'appendChildToContainer() first argument is not a container.',
       );
@@ -89,6 +90,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     if (typeof (parentInstance: any).rootID === 'string') {
       // Some calls to this aren't typesafe.
       // This helps surface mistakes in tests.
+      // extract-errors/skip
       throw new Error('appendChild() first argument is not an instance.');
     }
     appendChildToContainerOrInstance(parentInstance, child);
@@ -105,6 +107,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     }
     const beforeIndex = parentInstance.children.indexOf(beforeChild);
     if (beforeIndex === -1) {
+      // extract-errors/skip
       throw new Error('This child does not exist.');
     }
     parentInstance.children.splice(beforeIndex, 0, child);
@@ -118,6 +121,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     if (typeof parentInstance.rootID !== 'string') {
       // Some calls to this aren't typesafe.
       // This helps surface mistakes in tests.
+      // extract-errors/skip
       throw new Error(
         'insertInContainerBefore() first argument is not a container.',
       );
@@ -133,6 +137,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     if (typeof (parentInstance: any).rootID === 'string') {
       // Some calls to this aren't typesafe.
       // This helps surface mistakes in tests.
+      // extract-errors/skip
       throw new Error('insertBefore() first argument is not an instance.');
     }
     insertInContainerOrInstanceBefore(parentInstance, child, beforeChild);
@@ -144,6 +149,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
   ): void {
     const index = parentInstance.children.indexOf(child);
     if (index === -1) {
+      // extract-errors/skip
       throw new Error('This child does not exist.');
     }
     parentInstance.children.splice(index, 1);
@@ -156,6 +162,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     if (typeof parentInstance.rootID !== 'string') {
       // Some calls to this aren't typesafe.
       // This helps surface mistakes in tests.
+      // extract-errors/skip
       throw new Error(
         'removeChildFromContainer() first argument is not a container.',
       );
@@ -170,6 +177,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     if (typeof (parentInstance: any).rootID === 'string') {
       // Some calls to this aren't typesafe.
       // This helps surface mistakes in tests.
+      // extract-errors/skip
       throw new Error('removeChild() first argument is not an instance.');
     }
     removeChildFromContainerOrInstance(parentInstance, child);
@@ -209,6 +217,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
 
   function shouldSetTextContent(type: string, props: Props): boolean {
     if (type === 'errorInBeginPhase') {
+      // extract-errors/skip
       throw new Error('Error in host config.');
     }
     return (
@@ -231,6 +240,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
 
     createInstance(type: string, props: Props): Instance {
       if (type === 'errorInCompletePhase') {
+        // extract-errors/skip
         throw new Error('Error in host config.');
       }
       const inst = {
@@ -274,12 +284,15 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       newProps: Props,
     ): null | {} {
       if (type === 'errorInCompletePhase') {
+        // extract-errors/skip
         throw new Error('Error in host config.');
       }
       if (oldProps === null) {
+        // extract-errors/skip
         throw new Error('Should have old props');
       }
       if (newProps === null) {
+        // extract-errors/skip
         throw new Error('Should have new props');
       }
       hostDiffCounter++;
@@ -337,6 +350,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
           newProps: Props,
         ): void {
           if (oldProps === null) {
+            // extract-errors/skip
             throw new Error('Should have old props');
           }
           hostUpdateCounter++;

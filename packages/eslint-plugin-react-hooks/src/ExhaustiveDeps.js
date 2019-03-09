@@ -898,6 +898,7 @@ function toPropertyAccessString(node) {
     const property = toPropertyAccessString(node.property);
     return `${object}.${property}`;
   } else {
+    // extract-errors/skip
     throw new Error(`Unsupported node type: ${node.type}`);
   }
 }

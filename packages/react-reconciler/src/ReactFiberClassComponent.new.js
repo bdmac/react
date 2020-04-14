@@ -53,7 +53,7 @@ import {
 import {readContext} from './ReactFiberNewContext.new';
 import {
   requestCurrentTimeForUpdate,
-  computeExpirationForFiber,
+  requestUpdateExpirationTime,
   scheduleUpdateOnFiber,
   priorityLevelToLabel,
 } from './ReactFiberWorkLoop.new';
@@ -96,7 +96,7 @@ if (__DEV__) {
     if (callback === null || typeof callback === 'function') {
       return;
     }
-    const key = `${callerName}_${(callback: any)}`;
+    const key = callerName + '_' + (callback: any);
     if (!didWarnOnInvalidCallback.has(key)) {
       didWarnOnInvalidCallback.add(key);
       console.error(
@@ -194,10 +194,10 @@ const classComponentUpdater = {
     const fiber = getInstance(inst);
     const currentTime = requestCurrentTimeForUpdate();
     const suspenseConfig = requestCurrentSuspenseConfig();
-    const expirationTime = computeExpirationForFiber(
-      currentTime,
+    const expirationTime = requestUpdateExpirationTime(
       fiber,
       suspenseConfig,
+      currentTime,
     );
 
     const update = createUpdate(currentTime, expirationTime, suspenseConfig);
@@ -228,10 +228,10 @@ const classComponentUpdater = {
     const fiber = getInstance(inst);
     const currentTime = requestCurrentTimeForUpdate();
     const suspenseConfig = requestCurrentSuspenseConfig();
-    const expirationTime = computeExpirationForFiber(
-      currentTime,
+    const expirationTime = requestUpdateExpirationTime(
       fiber,
       suspenseConfig,
+      currentTime,
     );
 
     const update = createUpdate(currentTime, expirationTime, suspenseConfig);
@@ -264,10 +264,10 @@ const classComponentUpdater = {
     const fiber = getInstance(inst);
     const currentTime = requestCurrentTimeForUpdate();
     const suspenseConfig = requestCurrentSuspenseConfig();
-    const expirationTime = computeExpirationForFiber(
-      currentTime,
+    const expirationTime = requestUpdateExpirationTime(
       fiber,
       suspenseConfig,
+      currentTime,
     );
 
     const update = createUpdate(currentTime, expirationTime, suspenseConfig);

@@ -47,7 +47,7 @@ import {
 import {
   getWorkInProgressRoot,
   scheduleUpdateOnFiber,
-  computeExpirationForFiber,
+  requestUpdateExpirationTime,
   requestCurrentTimeForUpdate,
   warnIfNotCurrentlyActingEffectsInDEV,
   warnIfNotCurrentlyActingUpdatesInDev,
@@ -984,10 +984,10 @@ function useMutableSource<Source, Snapshot>(
 
         const currentTime = requestCurrentTimeForUpdate();
         const suspenseConfig = requestCurrentSuspenseConfig();
-        const expirationTime = computeExpirationForFiber(
-          currentTime,
+        const expirationTime = requestUpdateExpirationTime(
           fiber,
           suspenseConfig,
+          currentTime,
         );
         setPendingExpirationTime(root, expirationTime);
 
@@ -1014,10 +1014,10 @@ function useMutableSource<Source, Snapshot>(
         // Record a pending mutable source update with the same expiration time.
         const currentTime = requestCurrentTimeForUpdate();
         const suspenseConfig = requestCurrentSuspenseConfig();
-        const expirationTime = computeExpirationForFiber(
-          currentTime,
+        const expirationTime = requestUpdateExpirationTime(
           fiber,
           suspenseConfig,
+          currentTime,
         );
 
         setPendingExpirationTime(root, expirationTime);
@@ -1639,10 +1639,10 @@ function dispatchAction<S, A>(
 
   const currentTime = requestCurrentTimeForUpdate();
   const suspenseConfig = requestCurrentSuspenseConfig();
-  const expirationTime = computeExpirationForFiber(
-    currentTime,
+  const expirationTime = requestUpdateExpirationTime(
     fiber,
     suspenseConfig,
+    currentTime,
   );
 
   const update: Update<S, A> = {

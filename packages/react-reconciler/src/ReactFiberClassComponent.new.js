@@ -52,7 +52,7 @@ import {
 } from './ReactFiberContext.new';
 import {readContext} from './ReactFiberNewContext.new';
 import {
-  requestCurrentTimeForUpdate,
+  requestEventTime,
   requestUpdateExpirationTime,
   scheduleUpdateOnFiber,
   priorityLevelToLabel,
@@ -192,15 +192,11 @@ const classComponentUpdater = {
   isMounted,
   enqueueSetState(inst, payload, callback) {
     const fiber = getInstance(inst);
-    const currentTime = requestCurrentTimeForUpdate();
+    const eventTime = requestEventTime();
     const suspenseConfig = requestCurrentSuspenseConfig();
-    const expirationTime = requestUpdateExpirationTime(
-      fiber,
-      suspenseConfig,
-      currentTime,
-    );
+    const expirationTime = requestUpdateExpirationTime(fiber, suspenseConfig);
 
-    const update = createUpdate(currentTime, expirationTime, suspenseConfig);
+    const update = createUpdate(eventTime, expirationTime, suspenseConfig);
     update.payload = payload;
     if (callback !== undefined && callback !== null) {
       if (__DEV__) {
@@ -226,15 +222,11 @@ const classComponentUpdater = {
   },
   enqueueReplaceState(inst, payload, callback) {
     const fiber = getInstance(inst);
-    const currentTime = requestCurrentTimeForUpdate();
+    const eventTime = requestEventTime();
     const suspenseConfig = requestCurrentSuspenseConfig();
-    const expirationTime = requestUpdateExpirationTime(
-      fiber,
-      suspenseConfig,
-      currentTime,
-    );
+    const expirationTime = requestUpdateExpirationTime(fiber, suspenseConfig);
 
-    const update = createUpdate(currentTime, expirationTime, suspenseConfig);
+    const update = createUpdate(eventTime, expirationTime, suspenseConfig);
     update.tag = ReplaceState;
     update.payload = payload;
 
@@ -262,15 +254,11 @@ const classComponentUpdater = {
   },
   enqueueForceUpdate(inst, callback) {
     const fiber = getInstance(inst);
-    const currentTime = requestCurrentTimeForUpdate();
+    const eventTime = requestEventTime();
     const suspenseConfig = requestCurrentSuspenseConfig();
-    const expirationTime = requestUpdateExpirationTime(
-      fiber,
-      suspenseConfig,
-      currentTime,
-    );
+    const expirationTime = requestUpdateExpirationTime(fiber, suspenseConfig);
 
-    const update = createUpdate(currentTime, expirationTime, suspenseConfig);
+    const update = createUpdate(eventTime, expirationTime, suspenseConfig);
     update.tag = ForceUpdate;
 
     if (callback !== undefined && callback !== null) {

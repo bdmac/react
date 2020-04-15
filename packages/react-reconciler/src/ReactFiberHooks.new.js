@@ -48,7 +48,7 @@ import {
   getWorkInProgressRoot,
   scheduleUpdateOnFiber,
   requestUpdateExpirationTime,
-  requestCurrentTimeForUpdate,
+  requestEventTime,
   warnIfNotCurrentlyActingEffectsInDEV,
   warnIfNotCurrentlyActingUpdatesInDev,
   warnIfNotScopedWithMatchingAct,
@@ -982,12 +982,10 @@ function useMutableSource<Source, Snapshot>(
       if (!is(snapshot, maybeNewSnapshot)) {
         setSnapshot(maybeNewSnapshot);
 
-        const currentTime = requestCurrentTimeForUpdate();
         const suspenseConfig = requestCurrentSuspenseConfig();
         const expirationTime = requestUpdateExpirationTime(
           fiber,
           suspenseConfig,
-          currentTime,
         );
         setPendingExpirationTime(root, expirationTime);
 
@@ -1012,12 +1010,10 @@ function useMutableSource<Source, Snapshot>(
         latestSetSnapshot(latestGetSnapshot(source._source));
 
         // Record a pending mutable source update with the same expiration time.
-        const currentTime = requestCurrentTimeForUpdate();
         const suspenseConfig = requestCurrentSuspenseConfig();
         const expirationTime = requestUpdateExpirationTime(
           fiber,
           suspenseConfig,
-          currentTime,
         );
 
         setPendingExpirationTime(root, expirationTime);
@@ -1637,16 +1633,12 @@ function dispatchAction<S, A>(
     }
   }
 
-  const currentTime = requestCurrentTimeForUpdate();
+  const eventTime = requestEventTime();
   const suspenseConfig = requestCurrentSuspenseConfig();
-  const expirationTime = requestUpdateExpirationTime(
-    fiber,
-    suspenseConfig,
-    currentTime,
-  );
+  const expirationTime = requestUpdateExpirationTime(fiber, suspenseConfig);
 
   const update: Update<S, A> = {
-    eventTime: currentTime,
+    eventTime,
     expirationTime,
     suspenseConfig,
     action,
@@ -1733,10 +1725,7 @@ function dispatchAction<S, A>(
   if (__DEV__) {
     if (enableDebugTracing) {
       if (fiber.mode & DebugTracingMode) {
-        const priorityLevel = inferPriorityFromExpirationTime(
-          currentTime,
-          expirationTime,
-        );
+        const priorityLevel = inferPriorityFromExpirationTime(expirationTime);
         const label = priorityLevelToLabel(priorityLevel);
         const name = getComponentName(fiber.type) || 'Unknown';
         logStateUpdateScheduled(name, label, action);

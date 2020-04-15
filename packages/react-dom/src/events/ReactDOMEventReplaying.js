@@ -22,7 +22,7 @@ import {
 import {
   unstable_runWithPriority as runWithPriority,
   unstable_scheduleCallback as scheduleCallback,
-  unstable_NormalPriority as NormalPriority,
+  unstable_UserBlockingPriority as UserBlockingPriority,
   unstable_getCurrentPriorityLevel as getCurrentPriorityLevel,
 } from 'scheduler';
 import {
@@ -663,7 +663,7 @@ function scheduleCallbackIfUnblocked(
       // Schedule a callback to attempt replaying as many events as are
       // now unblocked. This first might not actually be unblocked yet.
       // We could check it early to avoid scheduling an unnecessary callback.
-      scheduleCallback(NormalPriority, replayUnblockedEvents);
+      scheduleCallback(UserBlockingPriority, replayUnblockedEvents);
     }
   }
 }

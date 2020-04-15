@@ -112,7 +112,7 @@ import {disableLogs, reenableLogs} from 'shared/ConsolePatchingDev';
 export type Update<State> = {|
   // TODO: Temporary field. Will remove this by storing a map of
   // transition -> event time on the root.
-  eventTime: ExpirationTime,
+  eventTime: number,
   expirationTime: ExpirationTime,
   suspenseConfig: null | SuspenseConfig,
 
@@ -192,7 +192,7 @@ export function cloneUpdateQueue<State>(
 }
 
 export function createUpdate(
-  eventTime: ExpirationTime,
+  eventTime: number,
   expirationTime: ExpirationTime,
   suspenseConfig: null | SuspenseConfig,
 ): Update<*> {

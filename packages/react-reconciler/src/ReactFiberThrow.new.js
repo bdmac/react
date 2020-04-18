@@ -9,7 +9,7 @@
 
 import type {Fiber} from './ReactInternalTypes';
 import type {FiberRoot} from './ReactInternalTypes';
-import type {ExpirationTime} from './ReactFiberExpirationTime.new';
+import type {ExpirationTimeOpaque} from './ReactFiberExpirationTime.new';
 import type {CapturedValue} from './ReactCapturedValue';
 import type {Update} from './ReactUpdateQueue.new';
 import type {Wakeable} from 'shared/ReactTypes';
@@ -57,14 +57,14 @@ import {
 import {logCapturedError} from './ReactFiberErrorLogger';
 import {logComponentSuspended} from './DebugTracing';
 
-import {Sync} from './ReactFiberExpirationTime.new';
+import {Sync, isSameExpirationTime} from './ReactFiberExpirationTime.new';
 
 const PossiblyWeakMap = typeof WeakMap === 'function' ? WeakMap : Map;
 
 function createRootErrorUpdate(
   fiber: Fiber,
   errorInfo: CapturedValue<mixed>,
-  expirationTime: ExpirationTime,
+  expirationTime: ExpirationTimeOpaque,
 ): Update<mixed> {
   const update = createUpdate(-1, expirationTime, null);
   // Unmount the root by rendering null.
@@ -83,7 +83,7 @@ function createRootErrorUpdate(
 function createClassErrorUpdate(
   fiber: Fiber,
   errorInfo: CapturedValue<mixed>,
-  expirationTime: ExpirationTime,
+  expirationTime: ExpirationTimeOpaque,
 ): Update<mixed> {
   const update = createUpdate(-1, expirationTime, null);
   update.tag = CaptureUpdate;
@@ -123,7 +123,12 @@ function createClassErrorUpdate(
           // If componentDidCatch is the only error boundary method defined,
           // then it needs to call setState to recover from errors.
           // If no state update is scheduled then the boundary will swallow the error.
-          if (fiber.expirationTime !== Sync) {
+          if (
+            !isSameExpirationTime(
+              fiber.expirationTime_opaque,
+              (Sync: ExpirationTimeOpaque),
+            )
+          ) {
             console.error(
               '%s: Error boundaries should implement getDerivedStateFromError(). ' +
                 'In that method, return a state update to display an error message or fallback UI.',
@@ -143,7 +148,7 @@ function createClassErrorUpdate(
 
 function attachPingListener(
   root: FiberRoot,
-  renderExpirationTime: ExpirationTime,
+  renderExpirationTime: ExpirationTimeOpaque,
   wakeable: Wakeable,
 ) {
   // Attach a listener to the promise to "ping" the root and retry. But
@@ -180,7 +185,7 @@ function throwException(
   returnFiber: Fiber,
   sourceFiber: Fiber,
   value: mixed,
-  renderExpirationTime: ExpirationTime,
+  renderExpirationTime: ExpirationTimeOpaque,
 ) {
   // The source fiber did not complete.
   sourceFiber.effectTag |= Incomplete;
@@ -211,7 +216,7 @@ function throwException(
       if (currentSource) {
         sourceFiber.updateQueue = currentSource.updateQueue;
         sourceFiber.memoizedState = currentSource.memoizedState;
-        sourceFiber.expirationTime = currentSource.expirationTime;
+        sourceFiber.expirationTime_opaque = currentSource.expirationTime_opaque;
       } else {
         sourceFiber.updateQueue = null;
         sourceFiber.memoizedState = null;
@@ -270,7 +275,11 @@ function throwException(
               // When we try rendering again, we should not reuse the current fiber,
               // since it's known to be in an inconsistent state. Use a force update to
               // prevent a bail out.
-              const update = createUpdate(-1, Sync, null);
+              const update = createUpdate(
+                -1,
+                (Sync: ExpirationTimeOpaque),
+                null,
+              );
               update.tag = ForceUpdate;
               enqueueUpdate(sourceFiber, update);
             }
@@ -278,7 +287,7 @@ function throwException(
 
           // The source fiber did not complete. Mark it with Sync priority to
           // indicate that it still has pending work.
-          sourceFiber.expirationTime = Sync;
+          sourceFiber.expirationTime_opaque = Sync;
 
           // Exit without suspending.
           return;
@@ -329,7 +338,7 @@ function throwException(
         attachPingListener(root, renderExpirationTime, wakeable);
 
         workInProgress.effectTag |= ShouldCapture;
-        workInProgress.expirationTime = renderExpirationTime;
+        workInProgress.expirationTime_opaque = renderExpirationTime;
 
         return;
       }
@@ -360,7 +369,7 @@ function throwException(
       case HostRoot: {
         const errorInfo = value;
         workInProgress.effectTag |= ShouldCapture;
-        workInProgress.expirationTime = renderExpirationTime;
+        workInProgress.expirationTime_opaque = renderExpirationTime;
         const update = createRootErrorUpdate(
           workInProgress,
           errorInfo,
@@ -382,7 +391,7 @@ function throwException(
               !isAlreadyFailedLegacyErrorBoundary(instance)))
         ) {
           workInProgress.effectTag |= ShouldCapture;
-          workInProgress.expirationTime = renderExpirationTime;
+          workInProgress.expirationTime_opaque = renderExpirationTime;
           // Schedule the error boundary to re-render using updated state
           const update = createClassErrorUpdate(
             workInProgress,

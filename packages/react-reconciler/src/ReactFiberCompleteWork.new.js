@@ -8,7 +8,7 @@
  */
 
 import type {Fiber} from './ReactInternalTypes';
-import type {ExpirationTimeOpaque} from './ReactFiberExpirationTime.new';
+import type {Lane, Lanes} from './ReactFiberLane';
 import type {
   ReactFundamentalComponentInstance,
   ReactScopeInstance,
@@ -114,7 +114,7 @@ import {
   resetHydrationState,
 } from './ReactFiberHydrationContext.new';
 import {
-  enableSchedulerTracing,
+  // enableSchedulerTracing,
   enableSuspenseCallback,
   enableSuspenseServerRenderer,
   enableDeprecatedFlareAPI,
@@ -123,17 +123,20 @@ import {
   enableBlocksAPI,
 } from 'shared/ReactFeatureFlags';
 import {
-  markSpawnedWork,
+  // markSpawnedWork,
   renderDidSuspend,
   renderDidSuspendDelayIfPossible,
   renderHasNotSuspendedYet,
 } from './ReactFiberWorkLoop.new';
 import {createFundamentalStateInstance} from './ReactFiberFundamental.new';
 import {
-  Never,
-  isSameOrHigherPriority,
-  bumpPriorityLower,
-} from './ReactFiberExpirationTime.new';
+  NoLanes,
+  laneToLanes,
+  OffscreenLane,
+  removeLane,
+  combineLanes,
+  includesSomeLane,
+} from './ReactFiberLane';
 import {resetChildFibers} from './ReactChildFiber.new';
 import {updateDeprecatedEventListeners} from './ReactFiberDeprecatedEvents.new';
 import {createScopeMethods} from './ReactFiberScope.new';
@@ -641,7 +644,7 @@ function cutOffTailIfNeeded(
 function completeWork(
   current: Fiber | null,
   workInProgress: Fiber,
-  renderExpirationTime: ExpirationTimeOpaque,
+  renderLanes: Lanes,
 ): Fiber | null {
   const newProps = workInProgress.pendingProps;
 
@@ -847,9 +850,9 @@ function completeWork(
                 'This is probably a bug in React.',
             );
             prepareToHydrateHostSuspenseInstance(workInProgress);
-            if (enableSchedulerTracing) {
-              markSpawnedWork((Never: ExpirationTimeOpaque));
-            }
+            // if (enableSchedulerTracing) {
+            //   markSpawnedWork((Never: Lanes));
+            // }
             return null;
           } else {
             // We should never have been in a hydration state if we didn't have a current.
@@ -873,7 +876,7 @@ function completeWork(
 
       if ((workInProgress.effectTag & DidCapture) !== NoEffect) {
         // Something suspended. Re-render with the fallback children.
-        workInProgress.expirationTime_opaque = renderExpirationTime;
+        workInProgress.lanes = renderLanes;
         // Do not reset the effect list.
         return workInProgress;
       }
@@ -1059,7 +1062,7 @@ function completeWork(
                 }
                 workInProgress.lastEffect = renderState.lastEffect;
                 // Reset the child fibers to their original state.
-                resetChildFibers(workInProgress, renderExpirationTime);
+                resetChildFibers(workInProgress, renderLanes);
 
                 // Set up the Suspense Context to force suspense and immediately
                 // rerender the children.
@@ -1119,29 +1122,30 @@ function completeWork(
             // the expiration.
             now() * 2 - renderState.renderingStartTime >
               renderState.tailExpiration &&
-            !isSameOrHigherPriority(
-              (Never: ExpirationTimeOpaque),
-              renderExpirationTime,
-            )
+            renderLanes !== OffscreenLane
           ) {
-            // We have now passed our CPU deadline and we'll just give up further
-            // attempts to render the main content and only render fallbacks.
-            // The assumption is that this is usually faster.
-            workInProgress.effectTag |= DidCapture;
-            didSuspendAlready = true;
+            const deferredLane = getDeferredLane(renderLanes);
+            if (deferredLane !== NoLane) {
+              // We have now passed our CPU deadline and we'll just give up further
+              // attempts to render the main content and only render fallbacks.
+              // The assumption is that this is usually faster.
+              workInProgress.effectTag |= DidCapture;
+              didSuspendAlready = true;
 
-            cutOffTailIfNeeded(renderState, false);
+              cutOffTailIfNeeded(renderState, false);
 
-            // Since nothing actually suspended, there will nothing to ping this
-            // to get it started back up to attempt the next item. If we can show
-            // them, then they really have the same priority as this render.
-            // So we'll pick it back up the very next render pass once we've had
-            // an opportunity to yield for paint.
-
-            const nextPriority = bumpPriorityLower(renderExpirationTime);
-            workInProgress.expirationTime_opaque = workInProgress.childExpirationTime_opaque = nextPriority;
-            if (enableSchedulerTracing) {
-              markSpawnedWork(nextPriority);
+              // Since nothing actually suspended, there will nothing to ping this
+              // to get it started back up to attempt the next item. If we can show
+              // them, then they really have the same priority as this render.
+              // So we'll pick it back up the very next render pass once we've had
+              // an opportunity to yield for paint.
+              workInProgress.lanes = workInProgress.childLanes = combineLanes(
+                renderLanes,
+                deferredLane,
+              );
+              // if (enableSchedulerTracing) {
+              //   markSpawnedWork(nextPriority);
+              // }
             }
           }
         }

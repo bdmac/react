@@ -18,7 +18,7 @@ import type {Fiber} from './ReactInternalTypes';
 import type {RootTag} from './ReactRootTags';
 import type {WorkTag} from './ReactWorkTags';
 import type {TypeOfMode} from './ReactTypeOfMode';
-import type {ExpirationTimeOpaque} from './ReactFiberExpirationTime.new';
+import type {Lanes} from './ReactFiberLane';
 import type {SuspenseInstance} from './ReactFiberHostConfig';
 
 import invariant from 'shared/invariant';
@@ -63,7 +63,7 @@ import {
   resolveFunctionForHotReloading,
   resolveForwardRefForHotReloading,
 } from './ReactFiberHotReloading.new';
-import {NoWork} from './ReactFiberExpirationTime.new';
+import {NoLanes} from './ReactFiberLane';
 import {
   NoMode,
   ConcurrentMode,
@@ -145,8 +145,8 @@ function FiberNode(
   this.firstEffect = null;
   this.lastEffect = null;
 
-  this.expirationTime_opaque = NoWork;
-  this.childExpirationTime_opaque = NoWork;
+  this.lanes = NoLanes;
+  this.childLanes = NoLanes;
 
   this.alternate = null;
 
@@ -309,9 +309,8 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
     }
   }
 
-  workInProgress.childExpirationTime_opaque =
-    current.childExpirationTime_opaque;
-  workInProgress.expirationTime_opaque = current.expirationTime_opaque;
+  workInProgress.childLanes = current.childLanes;
+  workInProgress.lanes = current.lanes;
 
   workInProgress.child = current.child;
   workInProgress.memoizedProps = current.memoizedProps;
@@ -325,7 +324,7 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
     currentDependencies === null
       ? null
       : {
-          expirationTime: currentDependencies.expirationTime,
+          lanes: currentDependencies.lanes,
           firstContext: currentDependencies.firstContext,
           responders: currentDependencies.responders,
         };
@@ -363,10 +362,7 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
 }
 
 // Used to reuse a Fiber for a second pass.
-export function resetWorkInProgress(
-  workInProgress: Fiber,
-  renderExpirationTime: ExpirationTimeOpaque,
-) {
+export function resetWorkInProgress(workInProgress: Fiber, renderLanes: Lanes) {
   // This resets the Fiber to what createFiber or createWorkInProgress would
   // have set the values to before during the first pass. Ideally this wouldn't
   // be necessary but unfortunately many code paths reads from the workInProgress
@@ -387,8 +383,8 @@ export function resetWorkInProgress(
   const current = workInProgress.alternate;
   if (current === null) {
     // Reset to createFiber's initial values.
-    workInProgress.childExpirationTime_opaque = NoWork;
-    workInProgress.expirationTime_opaque = renderExpirationTime;
+    workInProgress.childLanes = NoLanes;
+    workInProgress.lanes = renderLanes;
 
     workInProgress.child = null;
     workInProgress.memoizedProps = null;
@@ -407,9 +403,8 @@ export function resetWorkInProgress(
     }
   } else {
     // Reset to the cloned values that createWorkInProgress would've.
-    workInProgress.childExpirationTime_opaque =
-      current.childExpirationTime_opaque;
-    workInProgress.expirationTime_opaque = current.expirationTime_opaque;
+    workInProgress.childLanes = current.childLanes;
+    workInProgress.lanes = current.lanes;
 
     workInProgress.child = current.child;
     workInProgress.memoizedProps = current.memoizedProps;
@@ -423,7 +418,7 @@ export function resetWorkInProgress(
       currentDependencies === null
         ? null
         : {
-            expirationTime: currentDependencies.expirationTime,
+            lanes: currentDependencies.lanes,
             firstContext: currentDependencies.firstContext,
             responders: currentDependencies.responders,
           };
@@ -465,7 +460,7 @@ export function createFiberFromTypeAndProps(
   pendingProps: any,
   owner: null | Fiber,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
 ): Fiber {
   let fiberTag = IndeterminateComponent;
   // The resolved type is set if we know what the final type will be. I.e. it's not lazy.
@@ -486,12 +481,7 @@ export function createFiberFromTypeAndProps(
   } else {
     getTag: switch (type) {
       case REACT_FRAGMENT_TYPE:
-        return createFiberFromFragment(
-          pendingProps.children,
-          mode,
-          expirationTime,
-          key,
-        );
+        return createFiberFromFragment(pendingProps.children, mode, lanes, key);
       case REACT_DEBUG_TRACING_MODE_TYPE:
         fiberTag = Mode;
         mode |= DebugTracingMode;
@@ -501,16 +491,11 @@ export function createFiberFromTypeAndProps(
         mode |= StrictMode;
         break;
       case REACT_PROFILER_TYPE:
-        return createFiberFromProfiler(pendingProps, mode, expirationTime, key);
+        return createFiberFromProfiler(pendingProps, mode, lanes, key);
       case REACT_SUSPENSE_TYPE:
-        return createFiberFromSuspense(pendingProps, mode, expirationTime, key);
+        return createFiberFromSuspense(pendingProps, mode, lanes, key);
       case REACT_SUSPENSE_LIST_TYPE:
-        return createFiberFromSuspenseList(
-          pendingProps,
-          mode,
-          expirationTime,
-          key,
-        );
+        return createFiberFromSuspenseList(pendingProps, mode, lanes, key);
       default: {
         if (typeof type === 'object' && type !== null) {
           switch (type.$$typeof) {
@@ -543,7 +528,7 @@ export function createFiberFromTypeAndProps(
                   type,
                   pendingProps,
                   mode,
-                  expirationTime,
+                  lanes,
                   key,
                 );
               }
@@ -554,7 +539,7 @@ export function createFiberFromTypeAndProps(
                   type,
                   pendingProps,
                   mode,
-                  expirationTime,
+                  lanes,
                   key,
                 );
               }
@@ -593,7 +578,7 @@ export function createFiberFromTypeAndProps(
   const fiber = createFiber(fiberTag, pendingProps, key, mode);
   fiber.elementType = type;
   fiber.type = resolvedType;
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
 
   return fiber;
 }
@@ -601,7 +586,7 @@ export function createFiberFromTypeAndProps(
 export function createFiberFromElement(
   element: ReactElement,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
 ): Fiber {
   let owner = null;
   if (__DEV__) {
@@ -616,7 +601,7 @@ export function createFiberFromElement(
     pendingProps,
     owner,
     mode,
-    expirationTime,
+    lanes,
   );
   if (__DEV__) {
     fiber._debugSource = element._source;
@@ -628,11 +613,11 @@ export function createFiberFromElement(
 export function createFiberFromFragment(
   elements: ReactFragment,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
   key: null | string,
 ): Fiber {
   const fiber = createFiber(Fragment, elements, key, mode);
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
   return fiber;
 }
 
@@ -640,13 +625,13 @@ export function createFiberFromFundamental(
   fundamentalComponent: ReactFundamentalComponent<any, any>,
   pendingProps: any,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
   key: null | string,
 ): Fiber {
   const fiber = createFiber(FundamentalComponent, pendingProps, key, mode);
   fiber.elementType = fundamentalComponent;
   fiber.type = fundamentalComponent;
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
   return fiber;
 }
 
@@ -654,20 +639,20 @@ function createFiberFromScope(
   scope: ReactScope,
   pendingProps: any,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
   key: null | string,
 ) {
   const fiber = createFiber(ScopeComponent, pendingProps, key, mode);
   fiber.type = scope;
   fiber.elementType = scope;
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
   return fiber;
 }
 
 function createFiberFromProfiler(
   pendingProps: any,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
   key: null | string,
 ): Fiber {
   if (__DEV__) {
@@ -680,7 +665,7 @@ function createFiberFromProfiler(
   // TODO: The Profiler fiber shouldn't have a type. It has a tag.
   fiber.elementType = REACT_PROFILER_TYPE;
   fiber.type = REACT_PROFILER_TYPE;
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
 
   if (enableProfilerTimer) {
     fiber.stateNode = {
@@ -695,7 +680,7 @@ function createFiberFromProfiler(
 export function createFiberFromSuspense(
   pendingProps: any,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
   key: null | string,
 ) {
   const fiber = createFiber(SuspenseComponent, pendingProps, key, mode);
@@ -706,14 +691,14 @@ export function createFiberFromSuspense(
   fiber.type = REACT_SUSPENSE_TYPE;
   fiber.elementType = REACT_SUSPENSE_TYPE;
 
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
   return fiber;
 }
 
 export function createFiberFromSuspenseList(
   pendingProps: any,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
   key: null | string,
 ) {
   const fiber = createFiber(SuspenseListComponent, pendingProps, key, mode);
@@ -724,17 +709,17 @@ export function createFiberFromSuspenseList(
     fiber.type = REACT_SUSPENSE_LIST_TYPE;
   }
   fiber.elementType = REACT_SUSPENSE_LIST_TYPE;
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
   return fiber;
 }
 
 export function createFiberFromText(
   content: string,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
 ): Fiber {
   const fiber = createFiber(HostText, content, null, mode);
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
   return fiber;
 }
 
@@ -757,11 +742,11 @@ export function createFiberFromDehydratedFragment(
 export function createFiberFromPortal(
   portal: ReactPortal,
   mode: TypeOfMode,
-  expirationTime: ExpirationTimeOpaque,
+  lanes: Lanes,
 ): Fiber {
   const pendingProps = portal.children !== null ? portal.children : [];
   const fiber = createFiber(HostPortal, pendingProps, portal.key, mode);
-  fiber.expirationTime_opaque = expirationTime;
+  fiber.lanes = lanes;
   fiber.stateNode = {
     containerInfo: portal.containerInfo,
     pendingChildren: null, // Used by persistent updates
@@ -807,8 +792,8 @@ export function assignFiberPropertiesInDEV(
   target.nextEffect = source.nextEffect;
   target.firstEffect = source.firstEffect;
   target.lastEffect = source.lastEffect;
-  target.expirationTime_opaque = source.expirationTime_opaque;
-  target.childExpirationTime_opaque = source.childExpirationTime_opaque;
+  target.lanes = source.lanes;
+  target.childLanes = source.childLanes;
   target.alternate = source.alternate;
   if (enableProfilerTimer) {
     target.actualDuration = source.actualDuration;

@@ -15,4 +15,4 @@ max_line_length = 0
 trim_trailing_whitespace = false
 
 [COMMIT_EDITMSG]
-max_line_length = 0
+max_line_length = 1
